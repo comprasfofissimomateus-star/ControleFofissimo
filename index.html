@@ -574,13 +574,18 @@ function Confronto() {
         try {
           const resp = await fetch(`${SUPABASE_URL}/functions/v1/confronto-diario`, {
             method: "POST",
-            headers: { Authorization: `Bearer ${SUPABASE_ANON_KEY}`, "Content-Type": "application/json" },
+            headers: {
+              Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+              apikey: SUPABASE_ANON_KEY,
+              "Content-Type": "application/json",
+            },
             body: "{}",
           });
-          if (!resp.ok) throw new Error("falha");
+          const texto = await resp.text();
+          if (!resp.ok) throw new Error(`HTTP ${resp.status}: ${texto}`);
           setMsgFinal({ ok: true, texto: "Confronto executado com sucesso." });
         } catch (e) {
-          setMsgFinal({ ok: false, texto: "Não foi possível executar o confronto agora." });
+          setMsgFinal({ ok: false, texto: "Erro: " + (e && e.message ? e.message : String(e)) });
         }
         setRodando(false);
         setRecarregarChave((k) => k + 1);
