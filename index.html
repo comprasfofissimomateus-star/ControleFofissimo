@@ -572,7 +572,7 @@ function Confronto() {
     const proximo = async () => {
       if (passo >= ETAPAS_CONFRONTO.length) {
         try {
-          const resp = await fetch(`${SUPABASE_URL}/functions/v1/confronto-diario`, {
+          const resp = await fetch(`${SUPABASE_URL}/functions/v1/confronto_diario`, {
             method: "POST",
             headers: {
               Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
