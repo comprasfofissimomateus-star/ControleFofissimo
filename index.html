@@ -8,6 +8,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <style>
   html, body { margin: 0; padding: 0; }
   * { box-sizing: border-box; }
@@ -138,6 +139,101 @@ function formatarData(iso) {
 function formatarDataHora(ts) {
   const d = new Date(ts);
   return d.toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+}
+
+function normalizarTexto(txt) {
+  return (txt || "")
+    .toString()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+}
+function normalizarChave(txt) {
+  return normalizarTexto(txt).replace(/\s+/g, "");
+}
+
+async function lerArquivoPlanilha(file) {
+  const buffer = await file.arrayBuffer();
+  const wb = XLSX.read(buffer, { type: "array" });
+  const sheet = wb.Sheets[wb.SheetNames[0]];
+  return XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" });
+}
+
+// Procura, nas primeiras linhas, a linha de cabeçalho com as colunas "produto" e "numvendas"
+function encontrarColunasPDV(linhas) {
+  for (let i = 0; i < Math.min(linhas.length, 6); i++) {
+    const linha = linhas[i] || [];
+    let colProduto = -1, colQtd = -1;
+    linha.forEach((c, idx) => {
+      const chave = normalizarChave(c);
+      if (chave === "produto") colProduto = idx;
+      if (chave === "numvendas") colQtd = idx;
+    });
+    if (colProduto !== -1 && colQtd !== -1) return { headerRow: i, colProduto, colQtd };
+  }
+  return null;
+}
+
+function encontrarColunaQuantidadeGenerica(linhas) {
+  const palavrasChave = ["qtd", "quantidade", "qtde", "quant", "vendas", "unid"];
+  for (let i = 0; i < Math.min(linhas.length, 5); i++) {
+    const linha = linhas[i] || [];
+    for (let c = 0; c < linha.length; c++) {
+      const norm = normalizarTexto(linha[c]);
+      if (palavrasChave.some((p) => norm.includes(p))) return c;
+    }
+  }
+  return null;
+}
+
+// Lê as linhas da planilha e tenta casar cada item cadastrado com uma linha,
+// usando as colunas "produto" e "numvendas" quando existem; senão cai no modo genérico
+function processarPlanilhaPDV(linhas) {
+  const resultado = {};
+  ITEMS.forEach((item) => { resultado[item.id] = null; });
+
+  const colunas = encontrarColunasPDV(linhas);
+
+  if (colunas) {
+    for (let i = colunas.headerRow + 1; i < linhas.length; i++) {
+      const linha = linhas[i] || [];
+      const nomeProduto = normalizarTexto(linha[colunas.colProduto]);
+      if (!nomeProduto) continue;
+      const qtdRaw = linha[colunas.colQtd];
+      const qtd = typeof qtdRaw === "number" ? qtdRaw : parseFloat(qtdRaw);
+      if (isNaN(qtd)) continue;
+      ITEMS.forEach((item) => {
+        const nomeItem = normalizarTexto(item.nome);
+        if (nomeProduto.includes(nomeItem) || nomeItem.includes(nomeProduto)) {
+          resultado[item.id] = (resultado[item.id] || 0) + qtd;
+        }
+      });
+    }
+    return resultado;
+  }
+
+  // Modo genérico (planilha sem as colunas "produto"/"numvendas" reconhecíveis)
+  const colQtd = encontrarColunaQuantidadeGenerica(linhas);
+  linhas.forEach((linhaBruta) => {
+    const linha = linhaBruta || [];
+    const textosLinha = linha.map((c) => normalizarTexto(c));
+    ITEMS.forEach((item) => {
+      const nomeItem = normalizarTexto(item.nome);
+      const bateu = textosLinha.some((t) => t.length > 2 && (t.includes(nomeItem) || nomeItem.includes(t)));
+      if (!bateu) return;
+      let qtd = null;
+      if (colQtd !== null && typeof linha[colQtd] === "number") {
+        qtd = linha[colQtd];
+      } else {
+        for (const c of linha) {
+          if (typeof c === "number") { qtd = c; break; }
+        }
+      }
+      if (qtd !== null) resultado[item.id] = (resultado[item.id] || 0) + qtd;
+    });
+  });
+  return resultado;
 }
 
 // Busca todos os registros de um tipo para uma data, já preenchendo os itens sem registro com 0
@@ -520,11 +616,40 @@ function Financeiro({ dataInicial }) {
   const [desbloqueado, setDesbloqueado] = useState(false);
   const { data, setData, valores, setValores, carregando, erro } = useDiaCarregado("venda", dataInicial);
   const bloqueado = ehDataPassada(data);
+  const fileInputRef = useRef(null);
+  const [importando, setImportando] = useState(false);
+  const [resumoImport, setResumoImport] = useState(null);
 
   const mudar = async (id, v) => {
     if (bloqueado) return;
     setValores((prev) => ({ ...prev, [id]: v }));
     await salvarRegistro({ item_id: id, data, tipo: "venda", quantidade: v });
+  };
+
+  const importarArquivo = async (e) => {
+    const file = e.target.files[0];
+    e.target.value = "";
+    if (!file || bloqueado) return;
+    setImportando(true);
+    setResumoImport(null);
+    try {
+      const linhas = await lerArquivoPlanilha(file);
+      const resultado = processarPlanilhaPDV(linhas);
+      const encontrados = [];
+      const naoEncontrados = [];
+      for (const item of ITEMS) {
+        if (resultado[item.id] !== null) {
+          await mudar(item.id, resultado[item.id]);
+          encontrados.push(`${item.nome}: ${resultado[item.id]}`);
+        } else {
+          naoEncontrados.push(item.nome);
+        }
+      }
+      setResumoImport({ ok: true, encontrados, naoEncontrados });
+    } catch (err) {
+      setResumoImport({ ok: false, texto: "Não foi possível ler o arquivo. Confira se é um .xlsx válido." });
+    }
+    setImportando(false);
   };
 
   if (!desbloqueado) {
@@ -534,6 +659,32 @@ function Financeiro({ dataInicial }) {
   return (
     <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 10 }}>
       <DateBar data={data} setData={setData} />
+
+      <input ref={fileInputRef} type="file" accept=".xlsx,.xls" onChange={importarArquivo} style={{ display: "none" }} />
+      <button onClick={() => fileInputRef.current.click()} disabled={bloqueado || importando}
+        style={{
+          display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+          background: bloqueado ? accentSoft : accent, color: bloqueado ? inkSoft : "#fff",
+          border: "none", borderRadius: 10, padding: "11px 0", cursor: bloqueado || importando ? "default" : "pointer",
+          fontFamily: sans, fontWeight: 700, fontSize: 13.5,
+        }}>
+        <Icon name="paperclip" size={15} color={bloqueado ? inkSoft : "#fff"} />
+        {importando ? "Importando..." : "Importar PDV"}
+      </button>
+
+      {resumoImport && !importando && (
+        <div style={{ fontFamily: sans, fontSize: 11.5, color: resumoImport.ok ? ink : danger, background: resumoImport.ok ? accentSoft : dangerSoft, borderRadius: 8, padding: "8px 10px" }}>
+          {resumoImport.ok ? (
+            <>
+              {resumoImport.encontrados.length > 0 && <div>Importado: {resumoImport.encontrados.join(", ")}</div>}
+              {resumoImport.naoEncontrados.length > 0 && <div style={{ color: danger, marginTop: 2 }}>Não encontrado na planilha: {resumoImport.naoEncontrados.join(", ")}</div>}
+            </>
+          ) : (
+            resumoImport.texto
+          )}
+        </div>
+      )}
+
       {carregando && <div style={{ fontFamily: sans, fontSize: 12, color: inkSoft, textAlign: "center" }}>Carregando...</div>}
       {erro && <div style={{ fontFamily: sans, fontSize: 11.5, color: danger, textAlign: "center" }}>Não foi possível conectar ao banco de dados.</div>}
       {!carregando && ITEMS.map((item) => (
