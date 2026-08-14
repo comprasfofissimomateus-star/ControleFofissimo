@@ -1461,135 +1461,199 @@ function SupabasePainel() {
   );
 }
 
+
+async function carregarPerfilAtual(session) {
+  if (!session?.user?.id) return null;
+  const { data, error } = await sb
+    .from("perfis")
+    .select("id, usuario, nome, permissoes")
+    .eq("id", session.user.id)
+    .single();
+
+  if (error || !data) return null;
+  return {
+    id: data.id,
+    nome: data.nome || data.usuario,
+    usuario: data.usuario,
+    permissoes: Array.isArray(data.permissoes) ? data.permissoes : []
+  };
+}
+
+async function autenticarPorUsuario(usuario, senha) {
+  const nomeUsuario = usuario.trim();
+  if (!nomeUsuario || !senha) throw new Error("Informe usuário e senha.");
+
+  // O nome de usuário é convertido para o e-mail do Auth por uma função SQL.
+  // A senha nunca é consultada nem armazenada pelo JavaScript.
+  const { data: email, error: erroEmail } = await sb
+    .rpc("obter_email_login", { p_usuario: nomeUsuario });
+
+  if (erroEmail || !email) throw new Error("Usuário ou senha incorretos.");
+
+  const { data, error } = await sb.auth.signInWithPassword({
+    email,
+    password: senha
+  });
+
+  if (error || !data?.session) throw new Error("Usuário ou senha incorretos.");
+
+  const perfil = await carregarPerfilAtual(data.session);
+  if (!perfil) {
+    await sb.auth.signOut();
+    throw new Error("Usuário autenticado, mas sem perfil de acesso configurado.");
+  }
+  return perfil;
+}
+
+function Login({ onLogin }) {
+  const [usuario, setUsuario] = useState("");
+  const [senha, setSenha] = useState("");
+  const [erro, setErro] = useState("");
+  const [entrando, setEntrando] = useState(false);
+
+  const entrar = async () => {
+    if (entrando) return;
+    setErro("");
+    setEntrando(true);
+    try {
+      const perfil = await autenticarPorUsuario(usuario, senha);
+      onLogin(perfil);
+    } catch (e) {
+      setErro(e?.message || "Usuário ou senha incorretos.");
+    } finally {
+      setEntrando(false);
+    }
+  };
+
+  return (
+    <div style={{minHeight:"100vh",background:bgStripes,display:"flex",alignItems:"center",justifyContent:"center",padding:20,boxSizing:"border-box",fontFamily:sans}}>
+      <div style={{width:"min(360px,100%)",background:card,border:`1px solid ${line}`,borderRadius:20,boxShadow:"0 16px 40px rgba(59,42,30,0.18)",padding:22,boxSizing:"border-box"}}>
+        <div style={{fontFamily:sansArredondado,fontWeight:800,fontSize:22,color:ink,textAlign:"center",marginBottom:4}}>Fofíssimo Controle</div>
+        <div style={{fontFamily:sans,fontSize:11,color:inkSoft,textAlign:"center",marginBottom:20}}>Entre com seu usuário para acessar o sistema</div>
+        <label style={{display:"block",fontFamily:sans,fontSize:11.5,fontWeight:700,color:ink,marginBottom:5}}>Usuário</label>
+        <input value={usuario} onChange={e=>{setUsuario(e.target.value);setErro("");}} onKeyDown={e=>{if(e.key==="Enter")entrar();}} autoComplete="username"
+          style={{width:"100%",boxSizing:"border-box",padding:"11px 12px",border:`1px solid ${line}`,borderRadius:9,fontFamily:sans,fontSize:14,marginBottom:11}} />
+        <label style={{display:"block",fontFamily:sans,fontSize:11.5,fontWeight:700,color:ink,marginBottom:5}}>Senha</label>
+        <input type="password" value={senha} onChange={e=>{setSenha(e.target.value);setErro("");}} onKeyDown={e=>{if(e.key==="Enter")entrar();}} autoComplete="current-password"
+          style={{width:"100%",boxSizing:"border-box",padding:"11px 12px",border:`1px solid ${line}`,borderRadius:9,fontFamily:sans,fontSize:14,marginBottom:11}} />
+        {erro && <div style={{fontFamily:sans,fontSize:11.5,color:danger,textAlign:"center",marginBottom:10}}>{erro}</div>}
+        <button onClick={entrar} disabled={entrando} style={{width:"100%",padding:"11px",border:"none",borderRadius:9,background:entrando?accentSoft:accent,color:entrando?inkSoft:"#fff",fontFamily:sans,fontWeight:800,cursor:entrando?"default":"pointer"}}>
+          {entrando ? "Entrando..." : "Entrar"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function InstrucoesInicio({ permissoes }) {
+  const instrucoes = {
+    estoque: ["Estoque inicial do dia", <>Quantidade disponível de cada item no início da operação <b>(deve ser digitada manualmente todos os dias)</b>.</>],
+    entradas: ["Entradas", <>Quantidade de cada item que chegou no estoque naquele dia <b>(deve ser digitada manualmente nos dias que chegarem itens no estoque)</b>.<div style={{marginTop:6,fontWeight:800,color:danger}}>É NECESSÁRIO ANEXO DE COMPROVANTE PARA CONFIRMAR ENTRADAS.</div></>],
+    perdas: ["Perdas", <>Todos os itens do estoque que estragarem, sumirem ou não estiverem em condições de uso e forem descartados devem ser adicionados manualmente aqui.</>],
+    financeiro: ["Vendas", <>As vendas do dia só podem ser importadas diretamente do PDV, <b>não podendo ser digitadas manualmente</b>.</>],
+    historico: ["Histórico", <>Consulte as alterações registradas no sistema para acompanhar os lançamentos realizados.</>]
+  };
+  const ids = ["estoque","entradas","perdas","financeiro","historico"].filter(id=>permissoes.includes(id));
+
+  return (
+    <div style={{flex:1,minHeight:0,overflowY:"auto",padding:"18px 16px 22px",boxSizing:"border-box"}}>
+      <div style={{fontFamily:sansArredondado,fontWeight:800,fontSize:18,color:ink,marginBottom:14,textAlign:"center"}}>Como utilizar o sistema</div>
+      <div style={{display:"flex",flexDirection:"column",gap:10}}>
+        {ids.map(id => <div key={id} style={{background:id==="estoque"?accentSoft:"#F7F2EC",border:`1px solid ${line}`,borderRadius:12,padding:"12px 13px"}}>
+          <div style={{fontFamily:sansArredondado,fontWeight:800,fontSize:13.5,color:accent,marginBottom:5}}>{instrucoes[id][0]}</div>
+          <div style={{fontFamily:sans,fontSize:11.5,lineHeight:1.45,color:ink}}>{instrucoes[id][1]}</div>
+        </div>)}
+      </div>
+    </div>
+  );
+}
+
 function App() {
+  const [usuario, setUsuario] = useState(null);
   const [tab, setTab] = useState(null);
+  const [carregandoSessao, setCarregandoSessao] = useState(true);
+
+  useEffect(() => {
+    let ativo = true;
+
+    sb.auth.getSession().then(async ({ data }) => {
+      if (!ativo) return;
+      if (data?.session) {
+        const perfil = await carregarPerfilAtual(data.session);
+        if (ativo && perfil) setUsuario(perfil);
+      }
+      if (ativo) setCarregandoSessao(false);
+    });
+
+    const { data: listener } = sb.auth.onAuthStateChange(async (_event, session) => {
+      if (!ativo) return;
+      if (!session) {
+        setUsuario(null);
+        setTab(null);
+        return;
+      }
+      const perfil = await carregarPerfilAtual(session);
+      if (ativo) setUsuario(perfil);
+    });
+
+    return () => {
+      ativo = false;
+      listener?.subscription?.unsubscribe();
+    };
+  }, []);
+
+  if (carregandoSessao) {
+    return (
+      <div style={{minHeight:"100vh",background:bgStripes,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:sans,color:inkSoft}}>
+        Carregando...
+      </div>
+    );
+  }
+
+  if (!usuario) return <Login onLogin={dados => { setUsuario(dados); setTab(null); }} />;
+
+  const tabsPermitidas = TABS.filter(t => usuario.permissoes.includes(t.id));
+
+  const sair = async () => {
+    await sb.auth.signOut();
+    setUsuario(null);
+    setTab(null);
+  };
 
   return (
     <>
       <CicloAutomaticoGlobal />
-      <SupabasePainel />
-      <div style={{ minHeight: "100vh", background: bgStripes, display: "flex", flexDirection: "column", alignItems: "center", padding: "24px 0", fontFamily: sans }}>
-      <div style={{ width: 390, maxWidth: "100%", background: card, borderRadius: 20, border: `1px solid ${line}`, boxShadow: "0 16px 40px rgba(59,42,30,0.18)", overflow: "hidden", display: "flex", flexDirection: "column", height: 720, flexShrink: 0 }}>
-        <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
-          <div style={{ width: 96, flexShrink: 0, background: accentSoft, padding: "14px 8px", display: "flex", flexDirection: "column", gap: 10, overflowY: "auto" }}>
-            {TABS.map((t) => (
-              <button key={t.id} onClick={() => setTab(t.id)} style={{
-                border: tab === t.id ? "1px solid #5A341C" : `1.5px solid ${line}`,
-                borderRadius: 14, padding: "12px 4px", cursor: "pointer",
-                aspectRatio: "1 / 1",
-                display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 5,
-                background: tab === t.id ? "linear-gradient(135deg, #5A341C, #7A4A22)" : card,
-                color: tab === t.id ? "#fff" : accent,
-                boxShadow: tab === t.id ? "0 4px 10px rgba(90,52,28,0.45)" : "0 1px 3px rgba(59,42,30,0.08)",
-                transition: "background 0.2s ease, box-shadow 0.2s ease, border 0.2s ease",
-              }}>
-                <Icon name={t.icone} size={18} color={tab === t.id ? "#fff" : accent} />
-                <span style={{ fontFamily: sansArredondado, fontWeight: 800, fontSize: 13.5, lineHeight: 1.2, textAlign: "center" }}>{t.label}</span>
-              </button>
-            ))}
-          </div>
-
-          <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-            <div style={{ padding: "16px 16px 10px 20px" }}>
-              <div style={{ fontFamily: sansArredondado, fontWeight: 800, fontSize: 18, color: ink, marginBottom: 2 }}>Fofíssimo Controle</div>
-              <div style={{ fontFamily: sans, fontSize: 10.5, color: inkSoft }}>Dados salvos na nuvem — compartilhado entre todos</div>
+      <div style={{minHeight:"100vh",background:bgStripes,display:"flex",flexDirection:"column",alignItems:"center",padding:"24px 0",fontFamily:sans}}>
+        <div style={{width:390,maxWidth:"100%",background:card,borderRadius:20,border:`1px solid ${line}`,boxShadow:"0 16px 40px rgba(59,42,30,0.18)",overflow:"hidden",display:"flex",flexDirection:"column",height:720,flexShrink:0}}>
+          <div style={{flex:1,display:"flex",overflow:"hidden"}}>
+            <div style={{width:96,flexShrink:0,background:accentSoft,padding:"14px 8px",display:"flex",flexDirection:"column",gap:10,overflowY:"auto"}}>
+              {tabsPermitidas.map(t => <button key={t.id} onClick={()=>setTab(t.id)} style={{border:tab===t.id?"1px solid #5A341C":`1.5px solid ${line}`,borderRadius:14,padding:"12px 4px",cursor:"pointer",aspectRatio:"1 / 1",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:5,background:tab===t.id?"linear-gradient(135deg,#5A341C,#7A4A22)":card,color:tab===t.id?"#fff":accent,boxShadow:tab===t.id?"0 4px 10px rgba(90,52,28,0.45)":"0 1px 3px rgba(59,42,30,0.08)"}}>
+                <Icon name={t.icone} size={18} color={tab===t.id?"#fff":accent} />
+                <span style={{fontFamily:sansArredondado,fontWeight:800,fontSize:13.5,lineHeight:1.2,textAlign:"center"}}>{t.label}</span>
+              </button>)}
             </div>
-
-            <div key={tab || "inicio"} className={tab ? "tab-fan-enter" : ""} style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column" }}>
-              {!tab && (
-                <div style={{
-                  flex: 1,
-                  minHeight: 0,
-                  overflowY: "auto",
-                  padding: "18px 16px 22px",
-                  boxSizing: "border-box"
-                }}>
-                  <div style={{
-                    fontFamily: sansArredondado,
-                    fontWeight: 800,
-                    fontSize: 18,
-                    color: ink,
-                    marginBottom: 14,
-                    textAlign: "center"
-                  }}>
-                    Como utilizar o sistema
+            <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}>
+              <div style={{padding:"16px 16px 10px 20px"}}>
+                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8}}>
+                  <div>
+                    <div style={{fontFamily:sansArredondado,fontWeight:800,fontSize:18,color:ink,marginBottom:2}}>Fofíssimo Controle</div>
+                    <div style={{fontFamily:sans,fontSize:10.5,color:inkSoft}}>Usuário: <b>{usuario.nome}</b></div>
                   </div>
-
-                  <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                    <div style={{
-                      background: accentSoft,
-                      border: `1px solid ${line}`,
-                      borderRadius: 12,
-                      padding: "12px 13px"
-                    }}>
-                      <div style={{ fontFamily: sansArredondado, fontWeight: 800, fontSize: 13.5, color: accent, marginBottom: 5 }}>
-                        Estoque inicial do dia
-                      </div>
-                      <div style={{ fontFamily: sans, fontSize: 11.5, lineHeight: 1.45, color: ink }}>
-                        Quantidade disponível de cada item no início da operação
-                        <b> (deve ser digitada manualmente todos os dias)</b>.
-                      </div>
-                    </div>
-
-                    <div style={{
-                      background: "#F7F2EC",
-                      border: `1px solid ${line}`,
-                      borderRadius: 12,
-                      padding: "12px 13px"
-                    }}>
-                      <div style={{ fontFamily: sansArredondado, fontWeight: 800, fontSize: 13.5, color: accent, marginBottom: 5 }}>
-                        Entradas
-                      </div>
-                      <div style={{ fontFamily: sans, fontSize: 11.5, lineHeight: 1.45, color: ink }}>
-                        Quantidade de cada item que chegou no estoque naquele dia
-                        <b> (deve ser digitada manualmente nos dias que chegarem itens no estoque)</b>.
-                        <div style={{ marginTop: 6, fontWeight: 800, color: danger }}>
-                          É NECESSÁRIO ANEXO DE COMPROVANTE PARA CONFIRMAR ENTRADAS.
-                        </div>
-                      </div>
-                    </div>
-
-                    <div style={{
-                      background: "#F7F2EC",
-                      border: `1px solid ${line}`,
-                      borderRadius: 12,
-                      padding: "12px 13px"
-                    }}>
-                      <div style={{ fontFamily: sansArredondado, fontWeight: 800, fontSize: 13.5, color: accent, marginBottom: 5 }}>
-                        Perdas
-                      </div>
-                      <div style={{ fontFamily: sans, fontSize: 11.5, lineHeight: 1.45, color: ink }}>
-                        Todos os itens do estoque que estragarem, sumirem ou não estiverem em condições de uso e forem descartados devem ser adicionados manualmente aqui.
-                      </div>
-                    </div>
-
-                    <div style={{
-                      background: "#F7F2EC",
-                      border: `1px solid ${line}`,
-                      borderRadius: 12,
-                      padding: "12px 13px"
-                    }}>
-                      <div style={{ fontFamily: sansArredondado, fontWeight: 800, fontSize: 13.5, color: accent, marginBottom: 5 }}>
-                        Vendas
-                      </div>
-                      <div style={{ fontFamily: sans, fontSize: 11.5, lineHeight: 1.45, color: ink }}>
-                        As vendas do dia só podem ser importadas diretamente do PDV,
-                        <b> não podendo ser digitadas manualmente</b>.
-                      </div>
-                    </div>
-                  </div>
+                  <button onClick={sair} style={{border:`1px solid ${line}`,borderRadius:8,background:card,color:accent,padding:"6px 8px",fontFamily:sans,fontSize:10.5,fontWeight:800,cursor:"pointer"}}>Sair</button>
                 </div>
-              )}
-              {tab === "estoque" && <Estoque dataInicial={hojeStr()} />}
-              {tab === "entradas" && <EntradasProtegido dataInicial={hojeStr()} />}
-              {tab === "perdas" && <PerdasProtegido dataInicial={hojeStr()} />}
-              {tab === "financeiro" && <Financeiro dataInicial={hojeStr()} />}
-              {tab === "confronto" && <Confronto />}
-              {tab === "historico" && <HistoricoAlteracoes />}
+              </div>
+              <div key={tab||"inicio"} className={tab?"tab-fan-enter":""} style={{flex:1,overflowY:"auto",display:"flex",flexDirection:"column"}}>
+                {!tab && <InstrucoesInicio permissoes={usuario.permissoes} />}
+                {tab==="estoque" && <Estoque dataInicial={hojeStr()} />}
+                {tab==="entradas" && <EntradasProtegido dataInicial={hojeStr()} />}
+                {tab==="perdas" && <PerdasProtegido dataInicial={hojeStr()} />}
+                {tab==="financeiro" && <Financeiro dataInicial={hojeStr()} />}
+                {tab==="confronto" && <Confronto />}
+                {tab==="historico" && <HistoricoAlteracoes />}
+              </div>
             </div>
           </div>
         </div>
-      </div>
       </div>
     </>
   );
