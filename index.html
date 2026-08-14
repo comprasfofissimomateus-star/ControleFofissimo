@@ -780,10 +780,10 @@ function PerdasProtegido({ dataInicial }) {
 
 const ETAPAS_CONFRONTO = [
   "Coletando estoque inicial do dia...",
-  "Coletando dados de entradas...",
-  "Coletando dados de perdas...",
-  "Coletando dados de vendas...",
-  "Calculando estoque atual e comparando com o inicial...",
+  "Coletando entradas de hoje...",
+  "Coletando perdas de hoje...",
+  "Coletando vendas de hoje...",
+  "Comparando estoque atual com o estoque inicial...",
 ];
 
 function nomeDoItem(id) {
@@ -830,7 +830,7 @@ function UltimoConfronto({ recarregarChave }) {
         <div key={r.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontFamily: sans, fontSize: 12, color: r.status === "alerta" ? danger : ink }}>
           <span style={{ fontWeight: 600 }}>{nomeDoItem(r.item_id)}</span>
           {r.status === "alerta" ? (
-            <span style={{ fontWeight: 700 }}>inicial {r.estoque_esperado}, atual {r.estoque_contado} (dif. {r.diferenca})</span>
+            <span style={{ fontWeight: 700 }}>inicial {r.estoque_esperado}, atual {r.estoque_contado} (dif. {r.diferenca > 0 ? "+" : ""}{r.diferenca})</span>
           ) : (
             <span style={{ color: good, fontWeight: 700 }}>OK</span>
           )}
@@ -856,38 +856,37 @@ function Confronto() {
       if (passo >= ETAPAS_CONFRONTO.length) {
         try {
           const hoje = hojeStr();
-          const [inicial, entradas, perdas, vendas] = await Promise.all([
+
+          const [inicialRes, entradasRes, perdasRes, vendasRes] = await Promise.all([
             sb.from("registros").select("item_id, quantidade").eq("tipo", "contagem").eq("data", hoje),
             sb.from("registros").select("item_id, quantidade").eq("tipo", "entrada").eq("data", hoje),
             sb.from("registros").select("item_id, quantidade").eq("tipo", "perda").eq("data", hoje),
             sb.from("registros").select("item_id, quantidade").eq("tipo", "venda").eq("data", hoje),
           ]);
-          if (inicial.error || entradas.error || perdas.error || vendas.error) {
-            throw new Error("Não foi possível ler os dados do estoque.");
+          if (inicialRes.error || entradasRes.error || perdasRes.error || vendasRes.error) {
+            throw new Error("Não foi possível ler os dados do banco.");
           }
 
-          // Estoque inicial do dia: valor digitado na aba "Estoque inicial do dia"
-          const mapaInicial = Object.fromEntries(ITEMS.map((i) => [i.id, 0]));
-          (inicial.data || []).forEach((r) => { mapaInicial[r.item_id] = r.quantidade; });
+          const estoqueInicial = Object.fromEntries(ITEMS.map((i) => [i.id, 0]));
+          (inicialRes.data || []).forEach((r) => { estoqueInicial[r.item_id] = r.quantidade; });
 
-          // Estoque atual: calculado automaticamente (Entradas − Perdas − Vendas de hoje)
-          const mapaAtual = Object.fromEntries(ITEMS.map((i) => [i.id, 0]));
-          (entradas.data || []).forEach((r) => { mapaAtual[r.item_id] += r.quantidade; });
-          (perdas.data || []).forEach((r) => { mapaAtual[r.item_id] -= r.quantidade; });
-          (vendas.data || []).forEach((r) => { mapaAtual[r.item_id] -= r.quantidade; });
+          const estoqueAtual = Object.fromEntries(ITEMS.map((i) => [i.id, 0]));
+          (entradasRes.data || []).forEach((r) => { estoqueAtual[r.item_id] += r.quantidade; });
+          (perdasRes.data || []).forEach((r) => { estoqueAtual[r.item_id] -= r.quantidade; });
+          (vendasRes.data || []).forEach((r) => { estoqueAtual[r.item_id] -= r.quantidade; });
 
-          const agora = new Date().toISOString();
+          const executadoEm = new Date().toISOString();
           const linhas = ITEMS.map((item) => {
-            const esperado = mapaInicial[item.id];
-            const contado = mapaAtual[item.id];
-            const diferenca = contado - esperado;
+            const inicial = estoqueInicial[item.id];
+            const atual = estoqueAtual[item.id];
+            const diferenca = atual - inicial;
             return {
-              item_id: item.id,
               data_referencia: hoje,
-              executado_em: agora,
+              executado_em: executadoEm,
+              item_id: item.id,
               status: diferenca !== 0 ? "alerta" : "ok",
-              estoque_esperado: esperado,
-              estoque_contado: contado,
+              estoque_esperado: inicial,
+              estoque_contado: atual,
               diferenca,
             };
           });
@@ -895,10 +894,10 @@ function Confronto() {
           const { error: erroInsert } = await sb.from("confrontos").insert(linhas);
           if (erroInsert) throw new Error(erroInsert.message);
 
-          const temAlerta = linhas.some((l) => l.status === "alerta");
+          const temInconsistencia = linhas.some((l) => l.status === "alerta");
           setMsgFinal({
             ok: true,
-            texto: temAlerta ? "Confronto executado: inconsistências encontradas." : "Confronto executado: tudo certo, sem inconsistências.",
+            texto: temInconsistencia ? "Confronto concluído: foram encontradas inconsistências." : "Confronto concluído: tudo bate certinho.",
           });
         } catch (e) {
           setMsgFinal({ ok: false, texto: "Erro: " + (e && e.message ? e.message : String(e)) });
@@ -944,7 +943,7 @@ function Confronto() {
       <UltimoConfronto recarregarChave={recarregarChave} />
 
       <div style={{ fontFamily: sans, fontSize: 10.5, color: inkSoft, textAlign: "center" }}>
-        O confronto também roda sozinho, automaticamente, todo dia às 6h.
+        Compara o estoque atual (entradas − perdas − vendas de hoje) com o estoque inicial do dia.
       </div>
     </div>
   );
