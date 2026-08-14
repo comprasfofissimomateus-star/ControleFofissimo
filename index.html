@@ -164,7 +164,7 @@ async function salvarRegistro({ item_id, data, tipo, quantidade, foto_url, nome_
     .from("registros")
     .upsert(payload, { onConflict: "item_id,data,tipo" });
   if (!error) {
-    sb.from("alteracoes").insert({
+    await sb.from("alteracoes").insert({
       aba: abaDoTipo(tipo),
       item_id,
       data,
