@@ -127,6 +127,9 @@ function ontemStr() {
   const d = new Date(Date.now() - 24 * 60 * 60 * 1000);
   return d.toISOString().slice(0, 10);
 }
+function ehDataPassada(data) {
+  return data < hojeStr();
+}
 function formatarData(iso) {
   if (!iso) return "";
   const [y, m, d] = iso.split("-");
@@ -186,6 +189,15 @@ function Icon({ name, size = 16, color = "currentColor" }) {
       <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <rect x="3" y="11" width="18" height="11" rx="2" />
         <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+      </svg>
+    );
+  }
+  if (name === "caixote") {
+    return (
+      <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M3 8l9-4 9 4-9 4-9-4Z" />
+        <path d="M3 8v9l9 4 9-4V8" />
+        <path d="M12 12v9" />
       </svg>
     );
   }
@@ -280,48 +292,59 @@ const btnStep = {
 };
 
 function DateBar({ data, setData }) {
+  const passada = ehDataPassada(data);
   return (
-    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: accentSoft, borderRadius: 10, padding: "8px 12px" }}>
-      <span style={{ fontFamily: sans, fontSize: 12, fontWeight: 700, color: accent }}>Referente ao dia</span>
-      <input type="date" value={data} onChange={(e) => setData(e.target.value)}
-        style={{ fontFamily: sans, fontSize: 13, border: `1px solid ${line}`, borderRadius: 6, padding: "4px 6px", background: "#fff", color: ink }} />
+    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: accentSoft, borderRadius: 10, padding: "8px 12px" }}>
+        <span style={{ fontFamily: sans, fontSize: 12, fontWeight: 700, color: accent }}>Referente ao dia</span>
+        <input type="date" value={data} onChange={(e) => setData(e.target.value)}
+          style={{ fontFamily: sans, fontSize: 13, border: `1px solid ${line}`, borderRadius: 6, padding: "4px 6px", background: "#fff", color: ink }} />
+      </div>
+      {passada && (
+        <div style={{ fontFamily: sans, fontSize: 11, color: inkSoft, textAlign: "center" }}>
+          Data passada — somente visualização, não é possível editar.
+        </div>
+      )}
     </div>
   );
 }
 
-function ContadorRow({ nome, valor, onChange, iconId }) {
+function ContadorRow({ nome, valor, onChange, iconId, bloqueado }) {
   const [burst, setBurst] = useState(0);
   const mudar = (novoValor) => {
+    if (bloqueado) return;
     onChange(novoValor);
     setBurst((b) => b + 1);
   };
   return (
-    <div style={{ background: card, border: `1px solid ${line}`, borderRadius: 10, padding: "12px 14px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+    <div style={{ background: card, border: `1px solid ${line}`, borderRadius: 10, padding: "12px 14px", display: "flex", justifyContent: "space-between", alignItems: "center", opacity: bloqueado ? 0.6 : 1 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
         <ItemIcon id={iconId} />
         <span style={{ fontFamily: sans, fontWeight: 600, fontSize: 14.5, color: ink }}>{nome}</span>
       </div>
       <div style={{ position: "relative", display: "flex", alignItems: "center", gap: 10 }}>
         <SparkleBurst triggerKey={burst} />
-        <button onClick={() => mudar(Math.max(0, valor - 1))} style={btnStep}><Icon name="minus" size={14} /></button>
-        <input type="number" value={valor}
+        <button onClick={() => mudar(Math.max(0, valor - 1))} disabled={bloqueado} style={{ ...btnStep, cursor: bloqueado ? "default" : "pointer" }}><Icon name="minus" size={14} /></button>
+        <input type="number" value={valor} readOnly={bloqueado} disabled={bloqueado}
           onChange={(e) => mudar(Math.max(0, parseInt(e.target.value || "0", 10)))}
           style={{ width: 48, textAlign: "center", fontFamily: sans, fontWeight: 700, fontSize: 15, border: `1px solid ${line}`, borderRadius: 6, padding: "5px 2px", color: ink }} />
-        <button onClick={() => mudar(valor + 1)} style={btnStep}><Icon name="plus" size={14} /></button>
+        <button onClick={() => mudar(valor + 1)} disabled={bloqueado} style={{ ...btnStep, cursor: bloqueado ? "default" : "pointer" }}><Icon name="plus" size={14} /></button>
       </div>
     </div>
   );
 }
 
-function EntradaRow({ nome, dados, onChangeQtd, onAnexar, onRemoverAnexo, iconId }) {
+function EntradaRow({ nome, dados, onChangeQtd, onAnexar, onRemoverAnexo, iconId, bloqueado }) {
   const fileRef = useRef(null);
   const liberado = !!dados.foto;
   const [burst, setBurst] = useState(0);
   const mudarQtd = (v) => {
+    if (bloqueado) return;
     onChangeQtd(v);
     setBurst((b) => b + 1);
   };
   const handleFile = (e) => {
+    if (bloqueado) return;
     const file = e.target.files[0];
     if (!file) return;
     const reader = new FileReader();
@@ -330,7 +353,7 @@ function EntradaRow({ nome, dados, onChangeQtd, onAnexar, onRemoverAnexo, iconId
     e.target.value = "";
   };
   return (
-    <div style={{ background: card, border: `1px solid ${line}`, borderRadius: 10, padding: "12px 14px", display: "flex", flexDirection: "column", gap: 10 }}>
+    <div style={{ background: card, border: `1px solid ${line}`, borderRadius: 10, padding: "12px 14px", display: "flex", flexDirection: "column", gap: 10, opacity: bloqueado ? 0.6 : 1 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <ItemIcon id={iconId} />
@@ -339,26 +362,28 @@ function EntradaRow({ nome, dados, onChangeQtd, onAnexar, onRemoverAnexo, iconId
         {liberado && (
           <div style={{ position: "relative", display: "flex", alignItems: "center", gap: 10 }}>
             <SparkleBurst triggerKey={burst} />
-            <button onClick={() => mudarQtd(Math.max(0, dados.qtd - 1))} style={btnStep}><Icon name="minus" size={14} /></button>
-            <input type="number" value={dados.qtd}
+            <button onClick={() => mudarQtd(Math.max(0, dados.qtd - 1))} disabled={bloqueado} style={{ ...btnStep, cursor: bloqueado ? "default" : "pointer" }}><Icon name="minus" size={14} /></button>
+            <input type="number" value={dados.qtd} readOnly={bloqueado} disabled={bloqueado}
               onChange={(e) => mudarQtd(Math.max(0, parseInt(e.target.value || "0", 10)))}
               style={{ width: 48, textAlign: "center", fontFamily: sans, fontWeight: 700, fontSize: 15, border: `1px solid ${line}`, borderRadius: 6, padding: "5px 2px", color: ink }} />
-            <button onClick={() => mudarQtd(dados.qtd + 1)} style={btnStep}><Icon name="plus" size={14} /></button>
+            <button onClick={() => mudarQtd(dados.qtd + 1)} disabled={bloqueado} style={{ ...btnStep, cursor: bloqueado ? "default" : "pointer" }}><Icon name="plus" size={14} /></button>
           </div>
         )}
       </div>
       {liberado ? (
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <img src={dados.foto} alt="Nota fiscal" style={{ width: 44, height: 44, objectFit: "cover", borderRadius: 6, border: `1px solid ${line}` }} />
+          <img src={dados.foto} alt="Comprovante" style={{ width: 44, height: 44, objectFit: "cover", borderRadius: 6, border: `1px solid ${line}` }} />
           <span style={{ fontFamily: sans, fontSize: 12, color: inkSoft, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{dados.nomeArquivo}</span>
-          <button onClick={onRemoverAnexo} style={{ ...btnStep, color: danger, borderColor: danger }}><Icon name="trash" size={13} /></button>
+          {!bloqueado && (
+            <button onClick={onRemoverAnexo} style={{ ...btnStep, color: danger, borderColor: danger }}><Icon name="trash" size={13} /></button>
+          )}
         </div>
       ) : (
         <>
-          <label style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, border: `1.5px dashed ${line}`, borderRadius: 8, padding: "9px", cursor: "pointer", color: accent, fontFamily: sans, fontWeight: 600, fontSize: 12.5 }}>
+          <label style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, border: `1.5px dashed ${line}`, borderRadius: 8, padding: "9px", cursor: bloqueado ? "default" : "pointer", color: accent, fontFamily: sans, fontWeight: 600, fontSize: 12.5 }}>
             <Icon name="paperclip" size={14} />
             Anexar comprovante de entrada
-            <input ref={fileRef} type="file" accept="image/*" onChange={handleFile} style={{ display: "none" }} />
+            <input ref={fileRef} type="file" accept="image/*" onChange={handleFile} disabled={bloqueado} style={{ display: "none" }} />
           </label>
           <div style={{ display: "flex", alignItems: "center", gap: 6, color: inkSoft, fontFamily: sans, fontSize: 11 }}>
             <Icon name="lock" size={12} />
@@ -393,13 +418,12 @@ function useDiaCarregado(tipo, dataInicial) {
 
 function Contador({ tipo, dataInicial }) {
   const { data, setData, valores, setValores, carregando, erro } = useDiaCarregado(tipo, dataInicial);
-  const [salvandoId, setSalvandoId] = useState(null);
+  const bloqueado = ehDataPassada(data);
 
   const mudar = async (id, v) => {
+    if (bloqueado) return;
     setValores((prev) => ({ ...prev, [id]: v }));
-    setSalvandoId(id);
     await salvarRegistro({ item_id: id, data, tipo, quantidade: v });
-    setSalvandoId(null);
   };
 
   return (
@@ -408,7 +432,7 @@ function Contador({ tipo, dataInicial }) {
       {carregando && <div style={{ fontFamily: sans, fontSize: 12, color: inkSoft, textAlign: "center" }}>Carregando...</div>}
       {erro && <div style={{ fontFamily: sans, fontSize: 11.5, color: danger, textAlign: "center" }}>Não foi possível conectar ao banco de dados.</div>}
       {!carregando && ITEMS.map((item) => (
-        <ContadorRow key={item.id} nome={item.nome} valor={valores[item.id]} onChange={(v) => mudar(item.id, v)} iconId={item.id} />
+        <ContadorRow key={item.id} nome={item.nome} valor={valores[item.id]} onChange={(v) => mudar(item.id, v)} iconId={item.id} bloqueado={bloqueado} />
       ))}
     </div>
   );
@@ -435,16 +459,20 @@ function Estoque({ dataInicial }) {
 
 function Entradas({ dataInicial }) {
   const { data, setData, valores, setValores, carregando, erro } = useDiaCarregado("entrada", dataInicial);
+  const bloqueado = ehDataPassada(data);
 
   const mudarQtd = async (id, v) => {
+    if (bloqueado) return;
     setValores((prev) => ({ ...prev, [id]: { ...prev[id], qtd: v } }));
     await salvarRegistro({ item_id: id, data, tipo: "entrada", quantidade: v });
   };
   const anexar = async (id, dataUrl, nome) => {
+    if (bloqueado) return;
     setValores((prev) => ({ ...prev, [id]: { ...prev[id], foto: dataUrl, nomeArquivo: nome } }));
     await salvarRegistro({ item_id: id, data, tipo: "entrada", quantidade: valores[id].qtd, foto_url: dataUrl, nome_arquivo: nome });
   };
   const removerAnexo = async (id) => {
+    if (bloqueado) return;
     setValores((prev) => ({ ...prev, [id]: { qtd: 0, foto: null, nomeArquivo: null } }));
     await salvarRegistro({ item_id: id, data, tipo: "entrada", quantidade: 0, foto_url: null, nome_arquivo: null });
   };
@@ -455,7 +483,7 @@ function Entradas({ dataInicial }) {
       {carregando && <div style={{ fontFamily: sans, fontSize: 12, color: inkSoft, textAlign: "center" }}>Carregando...</div>}
       {erro && <div style={{ fontFamily: sans, fontSize: 11.5, color: danger, textAlign: "center" }}>Não foi possível conectar ao banco de dados.</div>}
       {!carregando && ITEMS.map((item) => (
-        <EntradaRow key={item.id} nome={item.nome} dados={valores[item.id]} iconId={item.id}
+        <EntradaRow key={item.id} nome={item.nome} dados={valores[item.id]} iconId={item.id} bloqueado={bloqueado}
           onChangeQtd={(v) => mudarQtd(item.id, v)}
           onAnexar={(dataUrl, nome) => anexar(item.id, dataUrl, nome)}
           onRemoverAnexo={() => removerAnexo(item.id)} />
@@ -491,8 +519,10 @@ function SenhaGate({ titulo, senhaCerta, onEntrar }) {
 function Financeiro({ dataInicial }) {
   const [desbloqueado, setDesbloqueado] = useState(false);
   const { data, setData, valores, setValores, carregando, erro } = useDiaCarregado("venda", dataInicial);
+  const bloqueado = ehDataPassada(data);
 
   const mudar = async (id, v) => {
+    if (bloqueado) return;
     setValores((prev) => ({ ...prev, [id]: v }));
     await salvarRegistro({ item_id: id, data, tipo: "venda", quantidade: v });
   };
@@ -507,11 +537,45 @@ function Financeiro({ dataInicial }) {
       {carregando && <div style={{ fontFamily: sans, fontSize: 12, color: inkSoft, textAlign: "center" }}>Carregando...</div>}
       {erro && <div style={{ fontFamily: sans, fontSize: 11.5, color: danger, textAlign: "center" }}>Não foi possível conectar ao banco de dados.</div>}
       {!carregando && ITEMS.map((item) => (
-        <ContadorRow key={item.id} nome={item.nome} valor={valores[item.id]} onChange={(v) => mudar(item.id, v)} iconId={item.id} />
+        <ContadorRow key={item.id} nome={item.nome} valor={valores[item.id]} onChange={(v) => mudar(item.id, v)} iconId={item.id} bloqueado={bloqueado} />
       ))}
       <button onClick={() => setDesbloqueado(false)} style={{ marginTop: 4, background: "transparent", border: "none", color: inkSoft, fontFamily: sans, fontSize: 12, cursor: "pointer", textAlign: "center" }}>
         Bloquear novamente
       </button>
+    </div>
+  );
+}
+
+function EntradasProtegido({ dataInicial }) {
+  const [desbloqueado, setDesbloqueado] = useState(false);
+  if (!desbloqueado) {
+    return <SenhaGate titulo="Área protegida" senhaCerta={SENHA_GERAL} onEntrar={() => setDesbloqueado(true)} />;
+  }
+  return (
+    <div style={{ display: "flex", flexDirection: "column" }}>
+      <Entradas dataInicial={dataInicial} />
+      <div style={{ padding: "0 16px 16px" }}>
+        <button onClick={() => setDesbloqueado(false)} style={{ background: "transparent", border: "none", color: inkSoft, fontFamily: sans, fontSize: 12, cursor: "pointer", textAlign: "center", width: "100%" }}>
+          Bloquear novamente
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function PerdasProtegido({ dataInicial }) {
+  const [desbloqueado, setDesbloqueado] = useState(false);
+  if (!desbloqueado) {
+    return <SenhaGate titulo="Área protegida" senhaCerta={SENHA_GERAL} onEntrar={() => setDesbloqueado(true)} />;
+  }
+  return (
+    <div style={{ display: "flex", flexDirection: "column" }}>
+      <Contador tipo="perda" dataInicial={dataInicial} />
+      <div style={{ padding: "0 16px 16px" }}>
+        <button onClick={() => setDesbloqueado(false)} style={{ background: "transparent", border: "none", color: inkSoft, fontFamily: sans, fontSize: 12, cursor: "pointer", textAlign: "center", width: "100%" }}>
+          Bloquear novamente
+        </button>
+      </div>
     </div>
   );
 }
@@ -665,7 +729,7 @@ function Confronto() {
 }
 
 const TABS = [
-  { id: "estoque", label: "Estoque" },
+  { id: "estoque", label: "Estoque inicial do dia" },
   { id: "entradas", label: "Entradas" },
   { id: "perdas", label: "Perdas" },
   { id: "financeiro", label: "Vendas" },
@@ -715,7 +779,70 @@ function HistoricoAlteracoes() {
   );
 }
 
-function RodapeOculto() {
+function ValorSomenteLeitura({ nome, valor, iconId }) {
+  return (
+    <div style={{ background: card, border: `1px solid ${line}`, borderRadius: 10, padding: "12px 14px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <ItemIcon id={iconId} />
+        <span style={{ fontFamily: sans, fontWeight: 600, fontSize: 14.5, color: ink }}>{nome}</span>
+      </div>
+      <span style={{ fontFamily: sans, fontWeight: 800, fontSize: 17, color: valor < 0 ? danger : ink }}>{valor}</span>
+    </div>
+  );
+}
+
+function EstoqueAtual() {
+  const [valores, setValores] = useState(null);
+  const [carregando, setCarregando] = useState(true);
+  const [erro, setErro] = useState(false);
+
+  const carregar = () => {
+    setCarregando(true);
+    const hoje = hojeStr();
+    Promise.all([
+      sb.from("registros").select("item_id, quantidade").eq("tipo", "entrada").eq("data", hoje),
+      sb.from("registros").select("item_id, quantidade").eq("tipo", "perda").eq("data", hoje),
+      sb.from("registros").select("item_id, quantidade").eq("tipo", "venda").eq("data", hoje),
+    ]).then(([entradas, perdas, vendas]) => {
+      if (entradas.error || perdas.error || vendas.error) {
+        setErro(true);
+        setCarregando(false);
+        return;
+      }
+      const mapa = Object.fromEntries(ITEMS.map((i) => [i.id, 0]));
+      (entradas.data || []).forEach((r) => { mapa[r.item_id] += r.quantidade; });
+      (perdas.data || []).forEach((r) => { mapa[r.item_id] -= r.quantidade; });
+      (vendas.data || []).forEach((r) => { mapa[r.item_id] -= r.quantidade; });
+      setValores(mapa);
+      setErro(false);
+      setCarregando(false);
+    });
+  };
+
+  useEffect(() => {
+    carregar();
+    const canal = sb
+      .channel("estoque-atual-mudancas")
+      .on("postgres_changes", { event: "*", schema: "public", table: "registros" }, () => carregar())
+      .subscribe();
+    return () => { sb.removeChannel(canal); };
+  }, []);
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 10, padding: 16, overflowY: "auto", flex: 1 }}>
+      <div style={{ fontFamily: sans, fontSize: 11.5, color: inkSoft, textAlign: "center" }}>
+        Calculado automaticamente: Entradas − Perdas − Vendas de hoje
+      </div>
+      {carregando && <div style={{ fontFamily: sans, fontSize: 12, color: inkSoft, textAlign: "center" }}>Carregando...</div>}
+      {erro && <div style={{ fontFamily: sans, fontSize: 11.5, color: danger, textAlign: "center" }}>Não foi possível calcular o estoque atual.</div>}
+      {!carregando && !erro && valores && ITEMS.map((item) => (
+        <ValorSomenteLeitura key={item.id} nome={item.nome} valor={valores[item.id]} iconId={item.id} />
+      ))}
+    </div>
+  );
+}
+
+function PainelOculto({ icone, titulo, children }) {
   const [mostrarSenha, setMostrarSenha] = useState(false);
   const [aberto, setAberto] = useState(false);
   const [senha, setSenha] = useState("");
@@ -734,18 +861,18 @@ function RodapeOculto() {
     return (
       <div style={{ position: "fixed", inset: 0, background: card, zIndex: 50, display: "flex", flexDirection: "column" }}>
         <div style={{ padding: "16px 16px 8px", display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: `1px solid ${line}` }}>
-          <div style={{ fontFamily: sans, fontWeight: 800, fontSize: 15, color: ink }}>Histórico de alterações</div>
+          <div style={{ fontFamily: sans, fontWeight: 800, fontSize: 15, color: ink }}>{titulo}</div>
           <button onClick={() => { setAberto(false); setMostrarSenha(false); setSenha(""); }} style={{ background: "transparent", border: "none", color: accent, fontFamily: sans, fontWeight: 700, fontSize: 13, cursor: "pointer" }}>Fechar</button>
         </div>
-        <HistoricoAlteracoes />
+        {children}
       </div>
     );
   }
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", padding: "28px 16px 40px", gap: 10 }}>
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
       <button onClick={() => setMostrarSenha((v) => !v)} style={{ width: 36, height: 36, borderRadius: 99, border: "none", background: "transparent", color: "rgba(59,42,30,0.25)", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
-        <Icon name="lock" size={18} />
+        <Icon name={icone} size={18} />
       </button>
       {mostrarSenha && (
         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
@@ -762,6 +889,19 @@ function RodapeOculto() {
   );
 }
 
+function RodapeOculto() {
+  return (
+    <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "center", gap: 28, padding: "28px 16px 40px" }}>
+      <PainelOculto icone="lock" titulo="Histórico de alterações">
+        <HistoricoAlteracoes />
+      </PainelOculto>
+      <PainelOculto icone="caixote" titulo="Estoque atual">
+        <EstoqueAtual />
+      </PainelOculto>
+    </div>
+  );
+}
+
 function App() {
   const [tab, setTab] = useState("estoque");
 
@@ -774,8 +914,8 @@ function App() {
           <div style={{ display: "flex", gap: 4, background: accentSoft, borderRadius: 10, padding: 3 }}>
             {TABS.map((t) => (
               <button key={t.id} onClick={() => setTab(t.id)} style={{
-                flex: 1, border: "none", borderRadius: 8, padding: "8px 0", cursor: "pointer",
-                fontFamily: sans, fontWeight: 700, fontSize: 11.5,
+                flex: 1, border: "none", borderRadius: 8, padding: "7px 2px", cursor: "pointer",
+                fontFamily: sans, fontWeight: 700, fontSize: 9.5, lineHeight: 1.15,
                 background: tab === t.id ? accent : "transparent",
                 color: tab === t.id ? "#fff" : accent,
               }}>
@@ -786,10 +926,10 @@ function App() {
         </div>
 
         <div style={{ flex: 1, overflowY: "auto" }}>
-          {tab === "estoque" && <Estoque dataInicial={ontemStr()} />}
-          {tab === "entradas" && <Entradas dataInicial={hojeStr()} />}
-          {tab === "perdas" && <Contador tipo="perda" dataInicial={hojeStr()} />}
-          {tab === "financeiro" && <Financeiro dataInicial={ontemStr()} />}
+          {tab === "estoque" && <Estoque dataInicial={hojeStr()} />}
+          {tab === "entradas" && <EntradasProtegido dataInicial={hojeStr()} />}
+          {tab === "perdas" && <PerdasProtegido dataInicial={hojeStr()} />}
+          {tab === "financeiro" && <Financeiro dataInicial={hojeStr()} />}
           {tab === "confronto" && <Confronto />}
         </div>
       </div>
