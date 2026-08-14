@@ -148,17 +148,39 @@ const SUPABASE_URL = "https://ktdqcgyththfdoxapxzu.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable_IVhzXI1s-idhKn_6LI8nPQ_307mZA5E";
 const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
+function dataLocalStr(d = new Date()) {
+  const ano = d.getFullYear();
+  const mes = String(d.getMonth() + 1).padStart(2, "0");
+  const dia = String(d.getDate()).padStart(2, "0");
+  return `${ano}-${mes}-${dia}`;
+}
 function hojeStr() {
-  const d = new Date();
-  return d.toISOString().slice(0, 10);
+  return dataLocalStr();
 }
 function ontemStr() {
-  const d = new Date(Date.now() - 24 * 60 * 60 * 1000);
-  return d.toISOString().slice(0, 10);
+  const d = new Date();
+  d.setDate(d.getDate() - 1);
+  return dataLocalStr(d);
 }
 function amanhaStr() {
-  const d = new Date(Date.now() + 24 * 60 * 60 * 1000);
-  return d.toISOString().slice(0, 10);
+  const d = new Date();
+  d.setDate(d.getDate() + 1);
+  return dataLocalStr(d);
+}
+function horaAtualDecimal() {
+  const d = new Date();
+  return d.getHours() + d.getMinutes() / 60 + d.getSeconds() / 3600;
+}
+function passouDas22h() {
+  return horaAtualDecimal() >= 22;
+}
+function chegouAs10h() {
+  return horaAtualDecimal() >= 10;
+}
+function timestampLocalHojeHora(hora, minuto = 0, segundo = 0) {
+  const d = new Date();
+  d.setHours(hora, minuto, segundo, 0);
+  return d.toISOString();
 }
 function ehDataPassada(data) {
   return data < hojeStr();
@@ -786,11 +808,9 @@ function PerdasProtegido({ dataInicial }) {
 }
 
 const ETAPAS_CONFRONTO = [
-  "Coletando estoque inicial do dia...",
-  "Coletando entradas de hoje...",
-  "Coletando perdas de hoje...",
-  "Coletando vendas de hoje...",
-  "Comparando estoque atual com o estoque inicial...",
+  "Coletando estoque inicial congelado das 10h...",
+  "Carregando estoque esperado trancado...",
+  "Comparando estoque inicial com o estoque esperado...",
 ];
 
 function nomeDoItem(id) {
@@ -851,93 +871,226 @@ const amarelo = "#B8860B";
 const amareloSoft = "#FBF3D9";
 const verdeSoft = "#E7F3E9";
 
+// =========================
+// CICLO AUTOMÁTICO DIÁRIO
+// 22h: congela o estoque esperado do dia seguinte.
+// 10h: congela o estoque inicial do dia e confronta com o esperado congelado.
+// O resultado fica no Supabase e no Histórico. Depois disso, o cálculo normal
+// do dia continua e o ciclo se repete para o próximo dia.
+// =========================
+
+async function lerMapaRegistrosPermitidos(data) {
+  const mapa = Object.fromEntries(ITEMS.map((i) => [i.id, 0]));
+  const [inicial, entradas, perdas, vendas] = await Promise.all([
+    sb.from("registros").select("item_id, quantidade").eq("tipo", "contagem").eq("data", data),
+    sb.from("registros").select("item_id, quantidade").eq("tipo", "entrada").eq("data", data),
+    sb.from("registros").select("item_id, quantidade").eq("tipo", "perda").eq("data", data),
+    sb.from("registros").select("item_id, quantidade").eq("tipo", "venda").eq("data", data),
+  ]);
+  if (inicial.error || entradas.error || perdas.error || vendas.error) throw new Error("Não foi possível ler os registros do dia.");
+  (inicial.data || []).forEach(r => { mapa[r.item_id] += Number(r.quantidade) || 0; });
+  (entradas.data || []).forEach(r => { mapa[r.item_id] += Number(r.quantidade) || 0; });
+  (perdas.data || []).forEach(r => { mapa[r.item_id] -= Number(r.quantidade) || 0; });
+  (vendas.data || []).forEach(r => { mapa[r.item_id] -= Number(r.quantidade) || 0; });
+  return mapa;
+}
+
+function mapaPorItens(rows) {
+  const mapa = Object.fromEntries(ITEMS.map((i) => [i.id, 0]));
+  (rows || []).forEach(r => { mapa[r.item_id] = Number(r.quantidade) || 0; });
+  return mapa;
+}
+
+// O banco é a autoridade do ciclo. Estas funções apenas acionam o fechamento
+// caso o cron ainda não tenha feito o trabalho (fallback para navegador).
+async function executarFechamentoDas22h() {
+  const dataAlvo = amanhaStr();
+  const { data: existente, error } = await sb.from("estoque_fechamentos")
+    .select("*").eq("data_referencia", dataAlvo).maybeSingle();
+  if (error) throw error;
+  if (existente && existente.esperado_congelado_em) return existente;
+
+  const esperado = await lerMapaRegistrosPermitidos(hojeStr());
+  const { data, error: erroInsert } = await sb.from("estoque_fechamentos").insert({
+    data_referencia: dataAlvo,
+    esperado: esperado,
+    esperado_congelado_em: new Date().toISOString()
+  }).select("*").single();
+
+  if (erroInsert) {
+    // Se outra execução acabou de congelar, apenas reutiliza o registro.
+    const { data: novamente } = await sb.from("estoque_fechamentos")
+      .select("*").eq("data_referencia", dataAlvo).maybeSingle();
+    if (novamente) return novamente;
+    throw erroInsert;
+  }
+  return data;
+}
+
+async function executarFechamentoDas10h() {
+  const dataHoje = hojeStr();
+  const { data: ciclo, error: erroCiclo } = await sb.from("estoque_fechamentos")
+    .select("*").eq("data_referencia", dataHoje).maybeSingle();
+  if (erroCiclo) throw erroCiclo;
+  if (!ciclo || !ciclo.esperado_congelado_em) {
+    throw new Error("O estoque esperado das 22h de ontem ainda não foi congelado.");
+  }
+  if (ciclo.confronto_executado_em) return ciclo;
+
+  const { data: inicialRows, error: erroInicial } = await sb.from("registros")
+    .select("item_id, quantidade").eq("tipo", "contagem").eq("data", dataHoje);
+  if (erroInicial) throw erroInicial;
+
+  const contado = mapaPorItens(inicialRows);
+  const esperado = ciclo.esperado || {};
+  const linhas = ITEMS.map(item => {
+    const esperadoV = Number(esperado[item.id] || 0);
+    const contadoV = Number(contado[item.id] || 0);
+    const diferenca = contadoV - esperadoV;
+    return {
+      data_referencia: dataHoje,
+      item_id: item.id,
+      status: diferenca !== 0 ? "alerta" : "ok",
+      estoque_esperado: esperadoV,
+      estoque_contado: contadoV,
+      diferenca,
+      executado_em: new Date().toISOString()
+    };
+  });
+
+  const { error: erroInsert } = await sb.from("confrontos").insert(linhas);
+  if (erroInsert) throw erroInsert;
+
+  // Registro explícito no Histórico do sistema.
+  const historico = ITEMS.map(item => {
+    const l = linhas.find(x => x.item_id === item.id);
+    return {
+      data_hora: l.executado_em,
+      item_id: item.id,
+      item_nome: nomeDoItem(item.id),
+      inicio_dia: l.estoque_contado,
+      entradas: 0,
+      perdas: 0,
+      vendas: 0,
+      esperado: l.estoque_esperado,
+      contado: l.estoque_contado,
+      diferenca: l.diferenca,
+      status: l.status
+    };
+  });
+  const { error: erroHistorico } = await sb.from("confronto_historico").insert(historico);
+  if (erroHistorico) throw erroHistorico;
+
+  const { data: atualizado, error: erroUpdate } = await sb.from("estoque_fechamentos")
+    .update({
+      estoque_inicial_10h: contado,
+      inicial_10h_congelado_em: new Date().toISOString(),
+      confronto_executado_em: new Date().toISOString()
+    })
+    .eq("data_referencia", dataHoje)
+    .is("confronto_executado_em", null)
+    .select("*").single();
+
+  if (erroUpdate) throw erroUpdate;
+  return atualizado;
+}
+
+function agendarCicloAutomatico(onResultado) {
+  let cancelado = false;
+  const verificar = async () => {
+    if (cancelado) return;
+    try {
+      const hora = horaAtualDecimal();
+      if (hora >= (22 + 1 / 60)) await executarFechamentoDas22h();
+      if (hora >= (10 + 1 / 60)) {
+        const resultado = await executarFechamentoDas10h();
+        if (onResultado) onResultado(resultado);
+      }
+    } catch (e) {
+      console.error("Ciclo automático diário:", e);
+    }
+  };
+  verificar();
+  const timer = setInterval(verificar, 10000);
+  return () => { cancelado = true; clearInterval(timer); };
+}
+
 function EstoqueEsperadoDia() {
   const [carregando, setCarregando] = useState(false);
-  const [resultado, setResultado] = useState(() => {
-    try {
-      const salvo = localStorage.getItem("estoqueEsperadoDia");
-      return salvo ? JSON.parse(salvo) : null;
-    } catch (e) {
-      return null;
-    }
-  });
+  const [resultado, setResultado] = useState(null);
+  const [congelado, setCongelado] = useState(false);
   const [erro, setErro] = useState(false);
-
-  useEffect(() => {
-    calcular();
-    const timer = setInterval(calcular, 2000);
-    return () => clearInterval(timer);
-  }, []);
 
   const calcular = async () => {
     setCarregando(true);
     setErro(false);
-    const hoje = hojeStr();
     try {
-      const [inicialRes, entradasRes, perdasRes, vendasRes] = await Promise.all([
-        sb.from("registros").select("item_id, quantidade").eq("tipo", "contagem").eq("data", hoje),
-        sb.from("registros").select("item_id, quantidade").eq("tipo", "entrada").eq("data", hoje),
-        sb.from("registros").select("item_id, quantidade").eq("tipo", "perda").eq("data", hoje),
-        sb.from("registros").select("item_id, quantidade").eq("tipo", "venda").eq("data", hoje),
-        new Promise((r) => setTimeout(r, 600)),
-      ]);
-      if (inicialRes.error || entradasRes.error || perdasRes.error || vendasRes.error) {
-        throw new Error("erro");
+      const alvo = amanhaStr();
+      const { data: ciclo, error } = await sb.from("estoque_fechamentos")
+        .select("*").eq("data_referencia", alvo).maybeSingle();
+      if (error) throw error;
+
+      if (ciclo && ciclo.esperado_congelado_em) {
+        setResultado(ciclo.esperado || {});
+        setCongelado(true);
+      } else if (passouDas22h()) {
+        const novo = await executarFechamentoDas22h();
+        setResultado(novo.esperado || {});
+        setCongelado(true);
+      } else {
+        setResultado(await lerMapaRegistrosPermitidos(hojeStr()));
+        setCongelado(false);
       }
-      const mapa = Object.fromEntries(ITEMS.map((i) => [i.id, 0]));
-      (inicialRes.data || []).forEach((r) => { mapa[r.item_id] += r.quantidade; });
-      (entradasRes.data || []).forEach((r) => { mapa[r.item_id] += r.quantidade; });
-      (perdasRes.data || []).forEach((r) => { mapa[r.item_id] -= r.quantidade; });
-      (vendasRes.data || []).forEach((r) => { mapa[r.item_id] -= r.quantidade; });
-      setResultado(mapa);
-      try {
-        localStorage.setItem("estoqueEsperadoDia", JSON.stringify(mapa));
-      } catch (e) {}
     } catch (e) {
+      console.error(e);
       setErro(true);
-      // Mantém o último cálculo exibido até que uma nova requisição seja concluída com sucesso.
     }
     setCarregando(false);
   };
+
+  useEffect(() => {
+    calcular();
+    const timer = setInterval(calcular, 10000);
+    return () => clearInterval(timer);
+  }, []);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
       <div style={{
         display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
-        background: accent, color: "#fff", border: "none", borderRadius: 10, padding: "11px 0",
-        fontFamily: sans, fontWeight: 700, fontSize: 13.5,
+        background: congelado ? "#3B7A45" : accent, color: "#fff", border: "none",
+        borderRadius: 10, padding: "11px 0", fontFamily: sans, fontWeight: 700, fontSize: 13.5,
       }}>
-        Estoque esperado do dia {formatarData(amanhaStr())}
+        {congelado
+          ? `🔒 Estoque esperado para dia ${formatarData(amanhaStr())} — cálculo finalizado e trancado`
+          : `Estoque esperado para dia ${formatarData(amanhaStr())}`}
       </div>
 
-      {erro && (
-        <div style={{ fontFamily: sans, fontSize: 11.5, color: danger, textAlign: "center" }}>
-          Não foi possível calcular o estoque esperado.
-        </div>
-      )}
+      {erro && <div style={{ fontFamily: sans, fontSize: 11.5, color: danger, textAlign: "center" }}>
+        Não foi possível carregar o estoque esperado.
+      </div>}
+      {carregando && !resultado && <div style={{ fontFamily: sans, fontSize: 12, color: inkSoft, textAlign: "center" }}>Calculando...</div>}
 
-      {resultado && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          {ITEMS.map((item) => {
-            const v = resultado[item.id];
-            const cor = v > 0 ? good : v === 0 ? amarelo : danger;
-            const corBg = v > 0 ? verdeSoft : v === 0 ? amareloSoft : dangerSoft;
-            return (
-              <div key={item.id} style={{ background: corBg, border: `1px solid ${line}`, borderRadius: 10, padding: "10px 14px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <ItemIcon id={item.id} />
-                  <span style={{ fontFamily: sans, fontWeight: 600, fontSize: 14, color: ink }}>{item.nome}</span>
-                </div>
-                <span style={{ fontFamily: sans, fontWeight: 800, fontSize: 16, color: cor }}>{v}</span>
-              </div>
-            );
-          })}
-        </div>
-      )}
+      {resultado && <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        {ITEMS.map(item => {
+          const v = Number(resultado[item.id] || 0);
+          const cor = v > 0 ? good : v === 0 ? amarelo : danger;
+          const corBg = v > 0 ? verdeSoft : v === 0 ? amareloSoft : dangerSoft;
+          return <div key={item.id} style={{ background: corBg, border: `1px solid ${line}`, borderRadius: 10, padding: "10px 14px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}><ItemIcon id={item.id} /><span style={{ fontFamily: sans, fontWeight: 600, fontSize: 14, color: ink }}>{item.nome}</span></div>
+            <span style={{ fontFamily: sans, fontWeight: 800, fontSize: 16, color: cor }}>{v}</span>
+          </div>;
+        })}
+      </div>}
+
+      <div style={{ fontFamily: sans, fontSize: 10.5, color: congelado ? good : inkSoft, textAlign: "center", background: congelado ? verdeSoft : "#F7F2EC", borderRadius: 8, padding: "7px 10px" }}>
+        {congelado
+          ? "Cálculo finalizado após 22h. Resultado trancado para o confronto das 10h do próximo dia."
+          : "Até 22h, o resultado acompanha as atualizações. Às 22h ele será congelado para o próximo dia."}
+      </div>
     </div>
   );
 }
-
 function Confronto() {
   const [rodando, setRodando] = useState(false);
   const [progresso, setProgresso] = useState(0);
@@ -960,43 +1113,50 @@ function Confronto() {
       if (passo >= ETAPAS_CONFRONTO.length) {
         try {
           const hoje = hojeStr();
-
-          const [inicialRes, entradasRes, perdasRes, vendasRes] = await Promise.all([
-            sb.from("registros").select("item_id, quantidade").eq("tipo", "contagem").eq("data", hoje),
-            sb.from("registros").select("item_id, quantidade").eq("tipo", "entrada").eq("data", hoje),
-            sb.from("registros").select("item_id, quantidade").eq("tipo", "perda").eq("data", hoje),
-            sb.from("registros").select("item_id, quantidade").eq("tipo", "venda").eq("data", hoje),
-          ]);
-          if (inicialRes.error || entradasRes.error || perdasRes.error || vendasRes.error) {
-            throw new Error("Não foi possível ler os dados do banco.");
+          const { data: ciclo, error: erroCiclo } = await sb.from("estoque_fechamentos")
+            .select("*").eq("data_referencia", hoje).maybeSingle();
+          if (erroCiclo) throw erroCiclo;
+          if (!ciclo || !ciclo.esperado_congelado_em) {
+            throw new Error("Ainda não existe estoque esperado congelado das 22h de ontem.");
           }
+          if (!ciclo.inicial_10h_congelado_em) {
+            await executarFechamentoDas10h();
+          }
+          const { data: cicloAtualizado, error: erroLeitura } = await sb.from("estoque_fechamentos")
+            .select("*").eq("data_referencia", hoje).single();
+          if (erroLeitura) throw erroLeitura;
 
-          const estoqueInicial = Object.fromEntries(ITEMS.map((i) => [i.id, 0]));
-          (inicialRes.data || []).forEach((r) => { estoqueInicial[r.item_id] = r.quantidade; });
-
-          const estoqueAtual = Object.fromEntries(ITEMS.map((i) => [i.id, 0]));
-          (entradasRes.data || []).forEach((r) => { estoqueAtual[r.item_id] += r.quantidade; });
-          (perdasRes.data || []).forEach((r) => { estoqueAtual[r.item_id] -= r.quantidade; });
-          (vendasRes.data || []).forEach((r) => { estoqueAtual[r.item_id] -= r.quantidade; });
-
+          const esperado = cicloAtualizado.esperado || {};
+          const estoqueInicial = cicloAtualizado.estoque_inicial_10h || {};
           const executadoEm = new Date().toISOString();
-          const linhas = ITEMS.map((item) => {
-            const inicial = estoqueInicial[item.id];
-            const atual = estoqueAtual[item.id];
-            const diferenca = atual - inicial;
+          const linhas = ITEMS.map(item => {
+            const esperadoV = Number(esperado[item.id] || 0);
+            const contadoV = Number(estoqueInicial[item.id] || 0);
+            const diferenca = contadoV - esperadoV;
             return {
               data_referencia: hoje,
               executado_em: executadoEm,
               item_id: item.id,
               status: diferenca !== 0 ? "alerta" : "ok",
-              estoque_esperado: inicial,
-              estoque_contado: atual,
-              diferenca,
+              estoque_esperado: esperadoV,
+              estoque_contado: contadoV,
+              diferenca
             };
           });
-
-          const { error: erroInsert } = await sb.from("confrontos").insert(linhas);
-          if (erroInsert) throw new Error(erroInsert.message);
+          const { data: existentes } = await sb.from("confrontos")
+            .select("id").eq("data_referencia", hoje).limit(ITEMS.length);
+          if (!existentes || existentes.length < ITEMS.length) {
+            const { error: erroInsert } = await sb.from("confrontos").insert(linhas);
+            if (erroInsert) throw new Error(erroInsert.message);
+            const historico = linhas.map(l => ({
+              data_hora: executadoEm, item_id: l.item_id, item_nome: nomeDoItem(l.item_id),
+              inicio_dia: l.estoque_contado, entradas: 0, perdas: 0, vendas: 0,
+              esperado: l.estoque_esperado, contado: l.estoque_contado,
+              diferenca: l.diferenca, status: l.status
+            }));
+            const { error: erroHist } = await sb.from("confronto_historico").insert(historico);
+            if (erroHist) throw erroHist;
+          }
 
           const temInconsistencia = linhas.some((l) => l.status === "alerta");
           setMsgFinal({
@@ -1074,7 +1234,7 @@ function Confronto() {
       <UltimoConfronto recarregarChave={recarregarChave} />
 
       <div style={{ fontFamily: sans, fontSize: 10.5, color: inkSoft, textAlign: "center" }}>
-        Compara o estoque atual (entradas − perdas − vendas de hoje) com o estoque inicial do dia.
+        Compara o estoque esperado trancado do dia anterior com o estoque inicial contado pelos funcionários no novo dia.
       </div>
     </div>
   );
@@ -1132,11 +1292,20 @@ function HistoricoAlteracoes() {
   );
 }
 
+function CicloAutomaticoGlobal() {
+  useEffect(() => {
+    return agendarCicloAutomatico(() => {});
+  }, []);
+  return null;
+}
+
 function App() {
   const [tab, setTab] = useState("estoque");
 
   return (
-    <div style={{ minHeight: "100vh", background: bgStripes, display: "flex", flexDirection: "column", alignItems: "center", padding: "24px 0", fontFamily: sans }}>
+    <>
+      <CicloAutomaticoGlobal />
+      <div style={{ minHeight: "100vh", background: bgStripes, display: "flex", flexDirection: "column", alignItems: "center", padding: "24px 0", fontFamily: sans }}>
       <div style={{ width: 390, maxWidth: "100%", background: card, borderRadius: 20, border: `1px solid ${line}`, boxShadow: "0 16px 40px rgba(59,42,30,0.18)", overflow: "hidden", display: "flex", flexDirection: "column", height: 720, flexShrink: 0 }}>
         <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
           <div style={{ width: 96, flexShrink: 0, background: accentSoft, padding: "14px 8px", display: "flex", flexDirection: "column", gap: 10, overflowY: "auto" }}>
@@ -1174,7 +1343,8 @@ function App() {
           </div>
         </div>
       </div>
-    </div>
+      </div>
+    </>
   );
 }
 
