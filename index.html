@@ -550,20 +550,6 @@ function ContadorRow({ nome, valor, onChange, iconId, bloqueado }) {
         <button onClick={() => mudar(valor + 1)} disabled={bloqueado} style={{ ...btnStep, cursor: bloqueado ? "default" : "pointer" }}><Icon name="plus" size={14} /></button>
       </div>
 
-<div style={{
-  width: "100%",
-  maxWidth: 390,
-  marginTop: 8,
-  padding: "8px 12px",
-  boxSizing: "border-box",
-  textAlign: "center",
-  fontFamily: sans,
-  fontSize: 10.5,
-  color: "rgba(90,52,28,.62)",
-  letterSpacing: ".15px"
-}}>
-  Criado por Fofissimo, analise de inteligência de dados 2026
-</div>
     </div>
   );
 }
@@ -1396,16 +1382,26 @@ function SupabasePainel() {
 
   return (
     <>
-      <button onClick={abrir} title="Painel do Supabase" style={{
+      <div style={{
         position:"fixed", bottom:8, left:"50%", transform:"translateX(-50%)",
-        width:42, height:32, borderRadius:"18px 18px 8px 8px",
-        border:`1px solid rgba(107,66,38,.25)`, background:"rgba(255,255,255,.55)",
-        backdropFilter:"blur(7px)", WebkitBackdropFilter:"blur(7px)",
-        color:accent, display:"flex", alignItems:"center", justifyContent:"center",
-        cursor:"pointer", zIndex:50, boxShadow:"0 2px 10px rgba(59,42,30,.08)"
+        display:"flex", alignItems:"center", gap:8, zIndex:50
       }}>
-        <Icon name="database" size={18} color={accent} />
-      </button>
+        <div style={{
+          fontFamily:sans, fontSize:9.5, color:"rgba(90,52,28,.62)",
+          whiteSpace:"nowrap", pointerEvents:"none"
+        }}>
+          Criado por Fofissimo, analise de inteligência de dados 2026
+        </div>
+        <button onClick={abrir} title="Painel do Supabase" style={{
+          width:42, height:32, borderRadius:"18px 18px 8px 8px",
+          border:`1px solid rgba(107,66,38,.25)`, background:"rgba(255,255,255,.55)",
+          backdropFilter:"blur(7px)", WebkitBackdropFilter:"blur(7px)",
+          color:accent, display:"flex", alignItems:"center", justifyContent:"center",
+          cursor:"pointer", boxShadow:"0 2px 10px rgba(59,42,30,.08)"
+        }}>
+          <Icon name="database" size={18} color={accent} />
+        </button>
+      </div>
 
       {aberto && (
         <div style={{position:"fixed",inset:0,zIndex:200,background:"rgba(59,42,30,.38)",display:"flex",alignItems:"center",justifyContent:"center",padding:18}}>
@@ -1466,7 +1462,7 @@ function SupabasePainel() {
 }
 
 function App() {
-  const [tab, setTab] = useState("estoque");
+  const [tab, setTab] = useState(null);
 
   return (
     <>
@@ -1499,7 +1495,30 @@ function App() {
               <div style={{ fontFamily: sans, fontSize: 10.5, color: inkSoft }}>Dados salvos na nuvem — compartilhado entre todos</div>
             </div>
 
-            <div key={tab} className="tab-fan-enter" style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column" }}>
+            <div key={tab || "inicio"} className={tab ? "tab-fan-enter" : ""} style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column" }}>
+              {!tab && (
+                <div style={{
+                  flex: 1,
+                  minHeight: 0,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  padding: "24px",
+                  boxSizing: "border-box"
+                }}>
+                  <img
+                    src="logo_pag_inicial.png"
+                    alt="Fofíssimo"
+                    style={{
+                      width: "min(245px, 78%)",
+                      maxHeight: "280px",
+                      objectFit: "contain",
+                      display: "block",
+                      background: "transparent"
+                    }}
+                  />
+                </div>
+              )}
               {tab === "estoque" && <Estoque dataInicial={hojeStr()} />}
               {tab === "entradas" && <EntradasProtegido dataInicial={hojeStr()} />}
               {tab === "perdas" && <PerdasProtegido dataInicial={hojeStr()} />}
