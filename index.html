@@ -129,12 +129,36 @@ const sansArredondado = "'Baloo 2', ui-rounded, ui-sans-serif, system-ui, sans-s
 
 const SENHA_GERAL = "170991";
 
-const ITEMS = [
-  { id: "pao-de-queijo", nome: "Pão de queijo" },
-  { id: "agua", nome: "Água" },
-  { id: "bolinho-nutella", nome: "Bolinho de Nutella" },
-  { id: "croissant", nome: "Croissant" },
+const CATEGORIAS = [
+  {
+    id: "salgados",
+    nome: "Salgados",
+    itens: [
+      { id: "pao-de-queijo", nome: "Pão de queijo" },
+      { id: "empada-alho-poro", nome: "Empada de alho-poró" },
+      { id: "empada-carne-seca", nome: "Empada de carne seca" },
+      { id: "croissant", nome: "Croissant" },
+    ],
+  },
+  {
+    id: "bolos",
+    nome: "Bolos",
+    itens: [
+      { id: "bolinho-nutella", nome: "Bolinho de Nutella" },
+    ],
+  },
+  {
+    id: "bebidas",
+    nome: "Bebidas",
+    itens: [
+      { id: "agua", nome: "Água" },
+    ],
+  },
 ];
+
+// Lista simples, na mesma ordem das categorias — usada em todo o resto do
+// código (cálculos, ciclo automático, confronto etc.) exatamente como antes.
+const ITEMS = CATEGORIAS.flatMap((c) => c.itens);
 
 let usuarioAtualNome = "";
 
@@ -356,6 +380,7 @@ function Icon({ name, size = 16, color = "currentColor" }) {
     database: "M4 6c0-2 4-3 8-3s8 1 8 3-4 3-8 3-8-1-8-3Z M4 6v6c0 2 4 3 8 3s8-1 8-3V6 M4 12v6c0 2 4 3 8 3s8-1 8-3v-6",
     eye: "M2.2 12s3.4-5 9.8-5 9.8 5 9.8 5-3.4 5-9.8 5-9.8-5-9.8-5Z M12 9.2a2.8 2.8 0 1 0 0 5.6 2.8 2.8 0 0 0 0-5.6Z",
     dice: "M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z",
+    chevronDown: "M6 9l6 6 6-6",
   };
   if (name === "database") {
     return (
@@ -470,7 +495,64 @@ function ItemIcon({ id, size = 22 }) {
       </svg>
     );
   }
+  if (id === "empada-alho-poro" || id === "empada-carne-seca") {
+    return (
+      <svg {...box}>
+        <path d="M4 15c0-4.2 3.6-7.3 8-7.3s8 3.1 8 7.3c0 1.6-1.1 2.7-2.6 2.7H6.6C5.1 17.7 4 16.6 4 15Z"
+          fill="#C9924F" stroke="#8A5A26" strokeWidth="0.6" />
+        <path d="M6.3 15.1c1.1-.5 2.3-.5 3.4 0M10.3 15.1c1.1-.5 2.3-.5 3.4 0M14.3 15.1c1.1-.5 2-.4 3 0"
+          stroke="#8A5A26" strokeWidth="0.7" fill="none" strokeLinecap="round" />
+      </svg>
+    );
+  }
   return null;
+}
+
+// =========================
+// AGRUPAMENTO POR CATEGORIA (acordeão)
+// Usado em todas as abas que listam produtos (Estoque, Entradas, Perdas,
+// Vendas e Estoque esperado do Confronto) para manter o padrão visual.
+// =========================
+function useCategoriasAbertas() {
+  const [abertas, setAbertas] = useState({});
+  const toggle = (id) => setAbertas((prev) => ({ ...prev, [id]: !prev[id] }));
+  return { abertas, toggle };
+}
+
+function CategoriaBloco({ categoria, aberto, onToggle, children }) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      <button onClick={onToggle} style={{
+        display: "flex", alignItems: "center", justifyContent: "space-between",
+        background: accentSoft, border: `1px solid ${line}`, borderRadius: 10,
+        padding: "10px 14px", cursor: "pointer", width: "100%", textAlign: "left"
+      }}>
+        <span style={{ fontFamily: sansArredondado, fontWeight: 800, fontSize: 14, color: accent }}>{categoria.nome}</span>
+        <span style={{ display: "inline-flex", transform: aberto ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.25s ease" }}>
+          <Icon name="chevronDown" size={16} color={accent} />
+        </span>
+      </button>
+      <div style={{ display: "grid", gridTemplateRows: aberto ? "1fr" : "0fr", transition: "grid-template-rows 0.3s ease", overflow: "hidden" }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 10, minHeight: 0 }}>
+          {children}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// items: função (item) => JSX. Percorre CATEGORIAS e renderiza cada bloco.
+function ListaPorCategoria({ children }) {
+  const { abertas, toggle } = useCategoriasAbertas();
+  return (
+    <>
+      {CATEGORIAS.map((cat) => (
+        <CategoriaBloco key={cat.id} categoria={cat} aberto={!!abertas[cat.id]} onToggle={() => toggle(cat.id)}>
+          {cat.itens.map((item) => children(item))}
+        </CategoriaBloco>
+      ))}
+    </>
+  );
 }
 
 function SparkleBurst({ triggerKey }) {
@@ -709,9 +791,13 @@ function Contador({ tipo, dataInicial }) {
       <DateBar data={data} setData={setData} />
       {carregando && <div style={{ fontFamily: sans, fontSize: 12, color: inkSoft, textAlign: "center" }}>Carregando...</div>}
       {erro && <div style={{ fontFamily: sans, fontSize: 11.5, color: danger, textAlign: "center" }}>Não foi possível conectar ao banco de dados.</div>}
-      {!carregando && ITEMS.map((item) => (
-        <ContadorRow key={item.id} nome={item.nome} valor={valores[item.id]} onChange={(v) => mudar(item.id, v)} iconId={item.id} bloqueado={bloqueado} />
-      ))}
+      {!carregando && (
+        <ListaPorCategoria>
+          {(item) => (
+            <ContadorRow key={item.id} nome={item.nome} valor={valores[item.id]} onChange={(v) => mudar(item.id, v)} iconId={item.id} bloqueado={bloqueado} />
+          )}
+        </ListaPorCategoria>
+      )}
     </div>
   );
 }
@@ -749,12 +835,16 @@ function Entradas({ dataInicial }) {
       <DateBar data={data} setData={setData} />
       {carregando && <div style={{ fontFamily: sans, fontSize: 12, color: inkSoft, textAlign: "center" }}>Carregando...</div>}
       {erro && <div style={{ fontFamily: sans, fontSize: 11.5, color: danger, textAlign: "center" }}>Não foi possível conectar ao banco de dados.</div>}
-      {!carregando && ITEMS.map((item) => (
-        <EntradaRow key={item.id} nome={item.nome} dados={valores[item.id]} iconId={item.id} bloqueado={bloqueado}
-          onChangeQtd={(v) => mudarQtd(item.id, v)}
-          onAnexar={(dataUrl, nome) => anexar(item.id, dataUrl, nome)}
-          onRemoverAnexo={() => removerAnexo(item.id)} />
-      ))}
+      {!carregando && (
+        <ListaPorCategoria>
+          {(item) => (
+            <EntradaRow key={item.id} nome={item.nome} dados={valores[item.id]} iconId={item.id} bloqueado={bloqueado}
+              onChangeQtd={(v) => mudarQtd(item.id, v)}
+              onAnexar={(dataUrl, nome) => anexar(item.id, dataUrl, nome)}
+              onRemoverAnexo={() => removerAnexo(item.id)} />
+          )}
+        </ListaPorCategoria>
+      )}
     </div>
   );
 }
@@ -862,9 +952,13 @@ function Financeiro({ dataInicial }) {
 
       {carregando && <div style={{ fontFamily: sans, fontSize: 12, color: inkSoft, textAlign: "center" }}>Carregando...</div>}
       {erro && <div style={{ fontFamily: sans, fontSize: 11.5, color: danger, textAlign: "center" }}>Não foi possível conectar ao banco de dados.</div>}
-      {!carregando && ITEMS.map((item) => (
-        <ContadorRow key={item.id} nome={item.nome} valor={valores[item.id]} onChange={(v) => mudar(item.id, v)} iconId={item.id} bloqueado={true} />
-      ))}
+      {!carregando && (
+        <ListaPorCategoria>
+          {(item) => (
+            <ContadorRow key={item.id} nome={item.nome} valor={valores[item.id]} onChange={(v) => mudar(item.id, v)} iconId={item.id} bloqueado={true} />
+          )}
+        </ListaPorCategoria>
+      )}
     </div>
   );
 }
@@ -1150,15 +1244,17 @@ function EstoqueEsperadoDia() {
       {carregando && !resultado && <div style={{ fontFamily: sans, fontSize: 12, color: inkSoft, textAlign: "center" }}>Calculando...</div>}
 
       {resultado && <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        {ITEMS.map(item => {
-          const v = Number(resultado[item.id] || 0);
-          const cor = v > 0 ? good : v === 0 ? amarelo : danger;
-          const corBg = v > 0 ? verdeSoft : v === 0 ? amareloSoft : dangerSoft;
-          return <div key={item.id} style={{ background: corBg, border: `1px solid ${line}`, borderRadius: 10, padding: "10px 14px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}><ItemIcon id={item.id} /><span style={{ fontFamily: sans, fontWeight: 600, fontSize: 14, color: ink }}>{item.nome}</span></div>
-            <span style={{ fontFamily: sans, fontWeight: 800, fontSize: 16, color: cor }}>{v}</span>
-          </div>;
-        })}
+        <ListaPorCategoria>
+          {(item) => {
+            const v = Number(resultado[item.id] || 0);
+            const cor = v > 0 ? good : v === 0 ? amarelo : danger;
+            const corBg = v > 0 ? verdeSoft : v === 0 ? amareloSoft : dangerSoft;
+            return <div key={item.id} style={{ background: corBg, border: `1px solid ${line}`, borderRadius: 10, padding: "10px 14px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}><ItemIcon id={item.id} /><span style={{ fontFamily: sans, fontWeight: 600, fontSize: 14, color: ink }}>{item.nome}</span></div>
+              <span style={{ fontFamily: sans, fontWeight: 800, fontSize: 16, color: cor }}>{v}</span>
+            </div>;
+          }}
+        </ListaPorCategoria>
       </div>}
 
       <div style={{ fontFamily: sans, fontSize: 10.5, color: congelado ? good : inkSoft, textAlign: "center", background: congelado ? verdeSoft : "#F7F2EC", borderRadius: 8, padding: "7px 10px" }}>
