@@ -134,8 +134,6 @@ const ITEMS = [
   { id: "croissant", nome: "Croissant" },
 ];
 
-const SENHA_GERAL = "170991";
-
 function abaDoTipo(tipo) {
   if (tipo === "contagem") return "Estoque";
   if (tipo === "entrada") return "Entradas";
@@ -1111,17 +1109,19 @@ function EstoqueEsperadoDia() {
     </div>
   );
 }
-function Confronto() {
+function Confronto({ permissoes = [] }) {
+  const isAdmin = permissoes.includes("admin");
   const [rodando, setRodando] = useState(false);
   const [progresso, setProgresso] = useState(0);
   const [etapaTexto, setEtapaTexto] = useState("");
   const [msgFinal, setMsgFinal] = useState(null);
   const [recarregarChave, setRecarregarChave] = useState(0);
-  const [pedirSenha, setPedirSenha] = useState(false);
+
+  if (!isAdmin) return null;
 
   const iniciarConfronto = () => {
     if (rodando) return;
-    setPedirSenha(true);
+    confrontarAgora();
   };
 
   const confrontarAgora = () => {
@@ -1211,29 +1211,6 @@ function Confronto() {
           {rodando ? "Analisando..." : "⚔ Confrontar agora"}
         </button>
       </div>
-
-      {pedirSenha && !rodando && (
-        <div style={{
-          position: "fixed", inset: 0, zIndex: 100, background: "rgba(59,42,30,0.35)",
-          display: "flex", alignItems: "center", justifyContent: "center", padding: 20
-        }}>
-          <div style={{
-            width: "min(320px, 100%)", background: card, border: `1px solid ${line}`,
-            borderRadius: 14, boxShadow: "0 16px 40px rgba(59,42,30,0.25)"
-          }}>
-            <SenhaGate
-              titulo="Digite a senha para realizar o confronto"
-              senhaCerta={SENHA_GERAL}
-              onEntrar={() => { setPedirSenha(false); confrontarAgora(); }}
-            />
-            <button onClick={() => setPedirSenha(false)} style={{
-              display: "block", margin: "-4px auto 14px", background: "transparent",
-              border: "none", color: inkSoft, fontFamily: sans, fontSize: 12,
-              cursor: "pointer"
-            }}>Cancelar</button>
-          </div>
-        </div>
-      )}
 
       {rodando && (
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -1328,41 +1305,28 @@ function formatBytesAdmin(bytes) {
   return `${n.toFixed(n >= 100 ? 0 : n >= 10 ? 1 : 2)} ${units[u]}`;
 }
 
-function SupabasePainel() {
+function SupabasePainel({ permissoes = [] }) {
+  const isAdmin = permissoes.includes("admin");
   const [aberto, setAberto] = useState(false);
-  const [senha, setSenha] = useState("");
-  const [autorizado, setAutorizado] = useState(false);
   const [dados, setDados] = useState(null);
   const [carregando, setCarregando] = useState(false);
   const [limpando, setLimpando] = useState(false);
   const [msg, setMsg] = useState("");
 
-  const abrir = () => {
+  if (!isAdmin) return null;
+
+  const abrir = async () => {
     setAberto(true);
-    setSenha("");
-    setAutorizado(false);
     setDados(null);
     setMsg("");
+    await consultar();
   };
 
-  const entrar = async () => {
-    if (senha !== SENHA_GERAL) {
-      setMsg("Senha incorreta.");
-      return;
-    }
-    setAutorizado(true);
+  const consultar = async () => {
     setCarregando(true);
     setMsg("");
-    const { data, error } = await sb.rpc("painel_supabase", { p_senha: senha });
-    if (error) setMsg("Não foi possível carregar o painel. Execute o SQL do painel no Supabase.");
-    else setDados(data);
-    setCarregando(false);
-  };
-
-  const atualizar = async () => {
-    setCarregando(true);
-    const { data, error } = await sb.rpc("painel_supabase", { p_senha: SENHA_GERAL });
-    if (error) setMsg("Erro ao atualizar os dados.");
+    const { data, error } = await sb.rpc("painel_supabase");
+    if (error) setMsg("Não foi possível carregar o painel administrativo.");
     else setDados(data);
     setCarregando(false);
   };
@@ -1371,11 +1335,12 @@ function SupabasePainel() {
     if (!window.confirm("Apagar dados operacionais, alterações e histórico com mais de 7 dias? Esta ação não pode ser desfeita.")) return;
     setLimpando(true);
     setMsg("");
-    const { data, error } = await sb.rpc("limpar_dados_7_dias", { p_senha: SENHA_GERAL });
-    if (error) setMsg("Não foi possível executar a limpeza. Confira o SQL do painel.");
-    else {
-      setMsg(`Limpeza concluída: ${data?.registros_apagados || 0} registros, ${data?.alteracoes_apagadas || 0} alterações e ${data?.historico_apagado || 0} históricos removidos.`);
-      await atualizar();
+    const { data, error } = await sb.rpc("limpar_dados_7_dias");
+    if (error) {
+      setMsg("Não foi possível executar a limpeza. Verifique sua permissão administrativa.");
+    } else {
+      setMsg(`Limpeza concluída: ${data?.registros_apagados || 0} registros, ${data?.alteracoes_apagadas || 0} alterações, ${data?.historico_apagado || 0} históricos e ${data?.confrontos_apagados || 0} confrontos removidos.`);
+      await consultar();
     }
     setLimpando(false);
   };
@@ -1392,7 +1357,7 @@ function SupabasePainel() {
         }}>
           Criado por Fofissimo, analise de inteligência de dados 2026
         </div>
-        <button onClick={abrir} title="Painel do Supabase" style={{
+        <button onClick={abrir} title="Painel administrativo" style={{
           width:42, height:32, borderRadius:"18px 18px 8px 8px",
           border:`1px solid rgba(107,66,38,.25)`, background:"rgba(255,255,255,.55)",
           backdropFilter:"blur(7px)", WebkitBackdropFilter:"blur(7px)",
@@ -1408,52 +1373,43 @@ function SupabasePainel() {
           <div style={{width:"min(360px,100%)",maxHeight:"88vh",overflowY:"auto",background:card,border:`1px solid ${line}`,borderRadius:18,boxShadow:"0 20px 60px rgba(59,42,30,.28)",padding:18}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
               <div>
-                <div style={{fontFamily:sansArredondado,fontWeight:800,fontSize:18,color:ink}}>Painel do Supabase</div>
-                <div style={{fontFamily:sans,fontSize:10.5,color:inkSoft}}>Monitoramento e limpeza de dados</div>
+                <div style={{fontFamily:sansArredondado,fontWeight:800,fontSize:18,color:ink}}>Painel administrativo</div>
+                <div style={{fontFamily:sans,fontSize:10.5,color:inkSoft}}>Acesso exclusivo do administrador</div>
               </div>
               <button onClick={()=>setAberto(false)} style={{...btnStep,border:"none",background:"transparent"}}>×</button>
             </div>
 
-            {!autorizado ? (
-              <>
-                <div style={{fontFamily:sans,fontSize:12,color:inkSoft,marginBottom:8}}>Digite a senha de administrador.</div>
-                <input autoFocus type="password" value={senha} onChange={e=>setSenha(e.target.value)}
-                  onKeyDown={e=>{if(e.key==="Enter") entrar();}}
-                  style={{width:"100%",boxSizing:"border-box",padding:"11px",border:`1px solid ${line}`,borderRadius:9,fontFamily:sans,fontSize:14,marginBottom:9}} />
-                <button onClick={entrar} style={{width:"100%",padding:"11px",border:"none",borderRadius:9,background:accent,color:"#fff",fontWeight:800,cursor:"pointer"}}>Entrar</button>
-              </>
-            ) : (
-              <>
-                {carregando && <div style={{fontFamily:sans,fontSize:12,color:inkSoft,textAlign:"center",padding:12}}>Consultando Supabase...</div>}
-                {dados && (
-                  <div style={{display:"flex",flexDirection:"column",gap:8}}>
-                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-                      <div style={{padding:10,border:`1px solid ${line}`,borderRadius:10}}>
-                        <div style={{fontSize:10,color:inkSoft}}>Banco</div><b style={{fontSize:16,color:ink}}>{formatBytesAdmin(dados.database_bytes)}</b>
-                      </div>
-                      <div style={{padding:10,border:`1px solid ${line}`,borderRadius:10}}>
-                        <div style={{fontSize:10,color:inkSoft}}>Registros</div><b style={{fontSize:16,color:ink}}>{dados.registros_count ?? "—"}</b>
-                      </div>
-                      <div style={{padding:10,border:`1px solid ${line}`,borderRadius:10}}>
-                        <div style={{fontSize:10,color:inkSoft}}>Alterações</div><b style={{fontSize:16,color:ink}}>{dados.alteracoes_count ?? "—"}</b>
-                      </div>
-                      <div style={{padding:10,border:`1px solid ${line}`,borderRadius:10}}>
-                        <div style={{fontSize:10,color:inkSoft}}>Histórico</div><b style={{fontSize:16,color:ink}}>{dados.historico_count ?? "—"}</b>
-                      </div>
-                    </div>
-                    <div style={{padding:10,border:`1px solid ${line}`,borderRadius:10,fontSize:11,color:inkSoft}}>
-                      <b style={{color:ink}}>Fotos antigas:</b> as fotos do sistema ficam armazenadas dentro dos registros como dados de imagem; a limpeza de registros com mais de 7 dias também remove essas fotos do banco.
-                    </div>
-                    <button onClick={atualizar} disabled={carregando} style={{padding:"10px",border:`1px solid ${line}`,borderRadius:9,background:card,color:accent,fontWeight:800}}>↻ Atualizar</button>
-                    <button onClick={limpar} disabled={limpando} style={{padding:"10px",border:"none",borderRadius:9,background:danger,color:"#fff",fontWeight:800}}>
-                      {limpando ? "Limpando..." : "Apagar dados com mais de 7 dias"}
-                    </button>
-                    {msg && <div style={{fontFamily:sans,fontSize:11,color:msg.startsWith("Limpeza")?good:danger,textAlign:"center"}}>{msg}</div>}
+            {carregando && <div style={{fontFamily:sans,fontSize:12,color:inkSoft,textAlign:"center",padding:12}}>Consultando Supabase...</div>}
+            {dados && (
+              <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+                  <div style={{padding:10,border:`1px solid ${line}`,borderRadius:10}}>
+                    <div style={{fontSize:10,color:inkSoft}}>Banco</div><b style={{fontSize:16,color:ink}}>{formatBytesAdmin(dados.database_bytes)}</b>
                   </div>
-                )}
-              </>
+                  <div style={{padding:10,border:`1px solid ${line}`,borderRadius:10}}>
+                    <div style={{fontSize:10,color:inkSoft}}>Registros</div><b style={{fontSize:16,color:ink}}>{dados.registros_count ?? "—"}</b>
+                  </div>
+                  <div style={{padding:10,border:`1px solid ${line}`,borderRadius:10}}>
+                    <div style={{fontSize:10,color:inkSoft}}>Alterações</div><b style={{fontSize:16,color:ink}}>{dados.alteracoes_count ?? "—"}</b>
+                  </div>
+                  <div style={{padding:10,border:`1px solid ${line}`,borderRadius:10}}>
+                    <div style={{fontSize:10,color:inkSoft}}>Histórico</div><b style={{fontSize:16,color:ink}}>{dados.historico_count ?? "—"}</b>
+                  </div>
+                  <div style={{padding:10,border:`1px solid ${line}`,borderRadius:10}}>
+                    <div style={{fontSize:10,color:inkSoft}}>Confrontos</div><b style={{fontSize:16,color:ink}}>{dados.confrontos_count ?? "—"}</b>
+                  </div>
+                </div>
+                <div style={{padding:10,border:`1px solid ${line}`,borderRadius:10,fontSize:11,color:inkSoft}}>
+                  <b style={{color:ink}}>Fotos antigas:</b> as fotos do sistema ficam armazenadas dentro dos registros como dados de imagem; a limpeza de registros com mais de 7 dias também remove essas fotos do banco.
+                </div>
+                <button onClick={consultar} disabled={carregando} style={{padding:"10px",border:`1px solid ${line}`,borderRadius:9,background:card,color:accent,fontWeight:800}}>↻ Atualizar</button>
+                <button onClick={limpar} disabled={limpando} style={{padding:"10px",border:"none",borderRadius:9,background:danger,color:"#fff",fontWeight:800}}>
+                  {limpando ? "Limpando..." : "Apagar dados com mais de 7 dias"}
+                </button>
+                {msg && <div style={{fontFamily:sans,fontSize:11,color:msg.startsWith("Limpeza")?good:danger,textAlign:"center"}}>{msg}</div>}
+              </div>
             )}
-            {!autorizado && msg && <div style={{fontFamily:sans,fontSize:11,color:danger,textAlign:"center",marginTop:8}}>{msg}</div>}
+            {!dados && !carregando && msg && <div style={{fontFamily:sans,fontSize:11,color:danger,textAlign:"center",marginTop:8}}>{msg}</div>}
           </div>
         </div>
       )}
@@ -1461,48 +1417,14 @@ function SupabasePainel() {
   );
 }
 
-
-async function carregarPerfilAtual(session) {
-  if (!session?.user?.id) return null;
+async function obterPerfilAtual(userId) {
   const { data, error } = await sb
     .from("perfis")
     .select("id, usuario, nome, permissoes")
-    .eq("id", session.user.id)
+    .eq("id", userId)
     .single();
-
-  if (error || !data) return null;
-  return {
-    id: data.id,
-    nome: data.nome || data.usuario,
-    usuario: data.usuario,
-    permissoes: Array.isArray(data.permissoes) ? data.permissoes : []
-  };
-}
-
-async function autenticarPorUsuario(usuario, senha) {
-  const nomeUsuario = usuario.trim();
-  if (!nomeUsuario || !senha) throw new Error("Informe usuário e senha.");
-
-  // O nome de usuário é convertido para o e-mail do Auth por uma função SQL.
-  // A senha nunca é consultada nem armazenada pelo JavaScript.
-  const { data: email, error: erroEmail } = await sb
-    .rpc("obter_email_login", { p_usuario: nomeUsuario });
-
-  if (erroEmail || !email) throw new Error("Usuário ou senha incorretos.");
-
-  const { data, error } = await sb.auth.signInWithPassword({
-    email,
-    password: senha
-  });
-
-  if (error || !data?.session) throw new Error("Usuário ou senha incorretos.");
-
-  const perfil = await carregarPerfilAtual(data.session);
-  if (!perfil) {
-    await sb.auth.signOut();
-    throw new Error("Usuário autenticado, mas sem perfil de acesso configurado.");
-  }
-  return perfil;
+  if (error || !data) throw new Error("Perfil do usuário não encontrado.");
+  return data;
 }
 
 function Login({ onLogin }) {
@@ -1515,11 +1437,35 @@ function Login({ onLogin }) {
     if (entrando) return;
     setErro("");
     setEntrando(true);
+
     try {
-      const perfil = await autenticarPorUsuario(usuario, senha);
-      onLogin(perfil);
+      const nomeUsuario = usuario.trim();
+      if (!nomeUsuario || !senha) throw new Error("Informe usuário e senha.");
+
+      const { data: emailData, error: emailError } = await sb.rpc("obter_email_login", {
+        p_usuario: nomeUsuario
+      });
+      if (emailError || !emailData) throw new Error("Usuário ou senha incorretos.");
+
+      const email = typeof emailData === "string" ? emailData : emailData.email;
+      if (!email) throw new Error("Usuário ou senha incorretos.");
+
+      const { data: authData, error: authError } = await sb.auth.signInWithPassword({
+        email,
+        password: senha
+      });
+      if (authError || !authData.user) throw new Error("Usuário ou senha incorretos.");
+
+      const perfil = await obterPerfilAtual(authData.user.id);
+      onLogin({
+        id: authData.user.id,
+        nome: perfil.nome || perfil.usuario || nomeUsuario,
+        usuario: perfil.usuario || nomeUsuario,
+        permissoes: Array.isArray(perfil.permissoes) ? perfil.permissoes : []
+      });
     } catch (e) {
-      setErro(e?.message || "Usuário ou senha incorretos.");
+      console.error(e);
+      setErro(e?.message || "Não foi possível entrar no sistema.");
     } finally {
       setEntrando(false);
     }
@@ -1531,11 +1477,9 @@ function Login({ onLogin }) {
         <div style={{fontFamily:sansArredondado,fontWeight:800,fontSize:22,color:ink,textAlign:"center",marginBottom:4}}>Fofíssimo Controle</div>
         <div style={{fontFamily:sans,fontSize:11,color:inkSoft,textAlign:"center",marginBottom:20}}>Entre com seu usuário para acessar o sistema</div>
         <label style={{display:"block",fontFamily:sans,fontSize:11.5,fontWeight:700,color:ink,marginBottom:5}}>Usuário</label>
-        <input value={usuario} onChange={e=>{setUsuario(e.target.value);setErro("");}} onKeyDown={e=>{if(e.key==="Enter")entrar();}} autoComplete="username"
-          style={{width:"100%",boxSizing:"border-box",padding:"11px 12px",border:`1px solid ${line}`,borderRadius:9,fontFamily:sans,fontSize:14,marginBottom:11}} />
+        <input value={usuario} onChange={e=>{setUsuario(e.target.value);setErro("");}} onKeyDown={e=>{if(e.key==="Enter")entrar();}} autoComplete="username" style={{width:"100%",boxSizing:"border-box",padding:"11px 12px",border:`1px solid ${line}`,borderRadius:9,fontFamily:sans,fontSize:14,marginBottom:11}} />
         <label style={{display:"block",fontFamily:sans,fontSize:11.5,fontWeight:700,color:ink,marginBottom:5}}>Senha</label>
-        <input type="password" value={senha} onChange={e=>{setSenha(e.target.value);setErro("");}} onKeyDown={e=>{if(e.key==="Enter")entrar();}} autoComplete="current-password"
-          style={{width:"100%",boxSizing:"border-box",padding:"11px 12px",border:`1px solid ${line}`,borderRadius:9,fontFamily:sans,fontSize:14,marginBottom:11}} />
+        <input type="password" value={senha} onChange={e=>{setSenha(e.target.value);setErro("");}} onKeyDown={e=>{if(e.key==="Enter")entrar();}} autoComplete="current-password" style={{width:"100%",boxSizing:"border-box",padding:"11px 12px",border:`1px solid ${line}`,borderRadius:9,fontFamily:sans,fontSize:14,marginBottom:11}} />
         {erro && <div style={{fontFamily:sans,fontSize:11.5,color:danger,textAlign:"center",marginBottom:10}}>{erro}</div>}
         <button onClick={entrar} disabled={entrando} style={{width:"100%",padding:"11px",border:"none",borderRadius:9,background:entrando?accentSoft:accent,color:entrando?inkSoft:"#fff",fontFamily:sans,fontWeight:800,cursor:entrando?"default":"pointer"}}>
           {entrando ? "Entrando..." : "Entrar"}
@@ -1571,40 +1515,37 @@ function InstrucoesInicio({ permissoes }) {
 function App() {
   const [usuario, setUsuario] = useState(null);
   const [tab, setTab] = useState(null);
-  const [carregandoSessao, setCarregandoSessao] = useState(true);
+  const [checandoSessao, setChecandoSessao] = useState(true);
 
   useEffect(() => {
     let ativo = true;
-
     sb.auth.getSession().then(async ({ data }) => {
       if (!ativo) return;
-      if (data?.session) {
-        const perfil = await carregarPerfilAtual(data.session);
-        if (ativo && perfil) setUsuario(perfil);
+      try {
+        if (data?.session?.user) {
+          const perfil = await obterPerfilAtual(data.session.user.id);
+          if (ativo) {
+            setUsuario({
+              id: data.session.user.id,
+              nome: perfil.nome || perfil.usuario,
+              usuario: perfil.usuario,
+              permissoes: Array.isArray(perfil.permissoes) ? perfil.permissoes : []
+            });
+          }
+        }
+      } catch (e) {
+        console.error(e);
+        await sb.auth.signOut();
+      } finally {
+        if (ativo) setChecandoSessao(false);
       }
-      if (ativo) setCarregandoSessao(false);
     });
-
-    const { data: listener } = sb.auth.onAuthStateChange(async (_event, session) => {
-      if (!ativo) return;
-      if (!session) {
-        setUsuario(null);
-        setTab(null);
-        return;
-      }
-      const perfil = await carregarPerfilAtual(session);
-      if (ativo) setUsuario(perfil);
-    });
-
-    return () => {
-      ativo = false;
-      listener?.subscription?.unsubscribe();
-    };
+    return () => { ativo = false; };
   }, []);
 
-  if (carregandoSessao) {
+  if (checandoSessao) {
     return (
-      <div style={{minHeight:"100vh",background:bgStripes,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:sans,color:inkSoft}}>
+      <div style={{minHeight:"100vh",background:bgStripes,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:sans,color:inkSoft,fontSize:12}}>
         Carregando...
       </div>
     );
@@ -1612,7 +1553,11 @@ function App() {
 
   if (!usuario) return <Login onLogin={dados => { setUsuario(dados); setTab(null); }} />;
 
-  const tabsPermitidas = TABS.filter(t => usuario.permissoes.includes(t.id));
+  const permissoes = usuario.permissoes || [];
+  const tabsPermitidas = TABS.filter(t => {
+    if (t.id === "confronto") return permissoes.includes("admin");
+    return permissoes.includes(t.id);
+  });
 
   const sair = async () => {
     await sb.auth.signOut();
@@ -1643,18 +1588,19 @@ function App() {
                 </div>
               </div>
               <div key={tab||"inicio"} className={tab?"tab-fan-enter":""} style={{flex:1,overflowY:"auto",display:"flex",flexDirection:"column"}}>
-                {!tab && <InstrucoesInicio permissoes={usuario.permissoes} />}
+                {!tab && <InstrucoesInicio permissoes={permissoes} />}
                 {tab==="estoque" && <Estoque dataInicial={hojeStr()} />}
                 {tab==="entradas" && <EntradasProtegido dataInicial={hojeStr()} />}
                 {tab==="perdas" && <PerdasProtegido dataInicial={hojeStr()} />}
                 {tab==="financeiro" && <Financeiro dataInicial={hojeStr()} />}
-                {tab==="confronto" && <Confronto />}
+                {tab==="confronto" && <Confronto permissoes={permissoes} />}
                 {tab==="historico" && <HistoricoAlteracoes />}
               </div>
             </div>
           </div>
         </div>
       </div>
+      <SupabasePainel permissoes={permissoes} />
     </>
   );
 }
