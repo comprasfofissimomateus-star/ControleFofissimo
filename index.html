@@ -102,6 +102,11 @@
   @keyframes spin-simple {
     to { transform: rotate(360deg); }
   }
+  @keyframes pulsoAoVivo {
+    0% { box-shadow: 0 0 0 0 rgba(255,77,77,0.65); }
+    70% { box-shadow: 0 0 0 6px rgba(255,77,77,0); }
+    100% { box-shadow: 0 0 0 0 rgba(255,77,77,0); }
+  }
 </style>
 </head>
 <body>
@@ -195,8 +200,11 @@ function horaAtualDecimal() {
   const d = new Date();
   return d.getHours() + d.getMinutes() / 60 + d.getSeconds() / 3600;
 }
-function passouDas22h() {
-  return horaAtualDecimal() >= 22;
+function passouDas2330() {
+  return horaAtualDecimal() >= 23.5;
+}
+function antesDoResetDiario() {
+  return horaAtualDecimal() < (1 / 60);
 }
 function chegouAs10h() {
   return horaAtualDecimal() >= 10;
@@ -223,6 +231,10 @@ function formatarData(iso) {
 function formatarDataHora(ts) {
   const d = new Date(ts);
   return d.toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+}
+function formatarDataDeTimestamp(ts) {
+  const d = new Date(ts);
+  return d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
 }
 
 function normalizarTexto(txt) {
@@ -1019,10 +1031,12 @@ const verdeSoft = "#E7F3E9";
 
 // =========================
 // CICLO AUTOMÁTICO DIÁRIO
-// 22h: congela o estoque esperado do dia seguinte.
+// 23:30: congela o estoque esperado do dia (fica disponível como "esperado" do
+// próximo dia, mantendo compatibilidade com o confronto das 10h).
 // 10h: congela o estoque inicial do dia e confronta com o esperado congelado.
-// O resultado fica no Supabase e no Histórico. Depois disso, o cálculo normal
-// do dia continua e o ciclo se repete para o próximo dia.
+// O resultado fica no Supabase e no Histórico. Às 00:01 o cálculo ao vivo do
+// novo dia recomeça, enquanto o resultado congelado da véspera continua
+// disponível na tela para consulta.
 // =========================
 
 async function lerMapaRegistrosPermitidos(data) {
@@ -1049,7 +1063,7 @@ function mapaPorItens(rows) {
 
 // O banco é a autoridade do ciclo. Estas funções apenas acionam o fechamento
 // caso o cron ainda não tenha feito o trabalho (fallback para navegador).
-async function executarFechamentoDas22h() {
+async function executarFechamentoDas2330() {
   const dataAlvo = amanhaStr();
   const { data: existente, error } = await sb.from("estoque_fechamentos")
     .select("*").eq("data_referencia", dataAlvo).maybeSingle();
@@ -1147,7 +1161,7 @@ function agendarCicloAutomatico(onResultado) {
     if (cancelado) return;
     try {
       const hora = horaAtualDecimal();
-      if (hora >= (22 + 1 / 60)) await executarFechamentoDas22h();
+      if (hora >= 23.5) await executarFechamentoDas2330();
       if (hora >= (10 + 1 / 60)) {
         const resultado = await executarFechamentoDas10h();
         if (onResultado) onResultado(resultado);
@@ -1162,31 +1176,38 @@ function agendarCicloAutomatico(onResultado) {
 }
 
 function EstoqueEsperadoDia() {
-  const [carregando, setCarregando] = useState(false);
-  const [resultado, setResultado] = useState(null);
-  const [congelado, setCongelado] = useState(false);
+  const [carregando, setCarregando] = useState(true);
+  const [resultadoAtual, setResultadoAtual] = useState(null);
+  const [congelado, setCongelado] = useState(null);
+  const [pausado, setPausado] = useState(false);
   const [erro, setErro] = useState(false);
 
+  const buscarUltimoCongelado = async () => {
+    const { data, error } = await sb.from("estoque_fechamentos")
+      .select("*")
+      .not("esperado_congelado_em", "is", null)
+      .order("esperado_congelado_em", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (error) throw error;
+    return data || null;
+  };
+
   const calcular = async () => {
-    setCarregando(true);
     setErro(false);
     try {
-      const alvo = amanhaStr();
-      const { data: ciclo, error } = await sb.from("estoque_fechamentos")
-        .select("*").eq("data_referencia", alvo).maybeSingle();
-      if (error) throw error;
+      const emPausa = passouDas2330() || antesDoResetDiario();
+      setPausado(emPausa);
 
-      if (ciclo && ciclo.esperado_congelado_em) {
-        setResultado(ciclo.esperado || {});
-        setCongelado(true);
-      } else if (passouDas22h()) {
-        const novo = await executarFechamentoDas22h();
-        setResultado(novo.esperado || {});
-        setCongelado(true);
+      if (emPausa) {
+        // Garante que o congelamento de hoje já aconteceu (fallback caso o cron não tenha rodado).
+        if (passouDas2330()) await executarFechamentoDas2330();
+        setResultadoAtual(null);
       } else {
-        setResultado(await lerMapaRegistrosPermitidos(hojeStr()));
-        setCongelado(false);
+        setResultadoAtual(await lerMapaRegistrosPermitidos(hojeStr()));
       }
+
+      setCongelado(await buscarUltimoCongelado());
     } catch (e) {
       console.error(e);
       setErro(true);
@@ -1201,41 +1222,84 @@ function EstoqueEsperadoDia() {
   }, []);
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-      <div style={{
-        display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
-        background: congelado ? "#3B7A45" : accent, color: "#fff", border: "none",
-        borderRadius: 10, padding: "11px 0", fontFamily: sans, fontWeight: 700, fontSize: 13.5,
-      }}>
-        {congelado
-          ? `🔒 Estoque esperado para dia ${formatarData(amanhaStr())} — cálculo finalizado e trancado`
-          : `Estoque esperado para dia ${formatarData(amanhaStr())}`}
+    <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        <div style={{
+          display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+          background: pausado ? inkSoft : accent, color: "#fff", border: "none",
+          borderRadius: 10, padding: "11px 14px", fontFamily: sans, fontWeight: 700, fontSize: 13.5, textAlign: "center",
+        }}>
+          {!pausado && (
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 5, background: "rgba(255,255,255,0.18)", borderRadius: 99, padding: "3px 9px" }}>
+              <span style={{
+                width: 7, height: 7, borderRadius: 99, background: "#FF4D4D",
+                boxShadow: "0 0 0 rgba(255,77,77,0.6)", animation: "pulsoAoVivo 1.4s ease-out infinite"
+              }} />
+              <span style={{ fontSize: 10.5, fontWeight: 800, letterSpacing: 0.5 }}>AO VIVO</span>
+            </span>
+          )}
+          {pausado
+            ? "Aguardando 00:01 para iniciar o cálculo do novo dia"
+            : `Estoque esperado — hoje (${formatarData(hojeStr())}), atualizado em tempo real`}
+        </div>
+
+        {erro && <div style={{ fontFamily: sans, fontSize: 11.5, color: danger, textAlign: "center" }}>
+          Não foi possível carregar o estoque esperado.
+        </div>}
+        {carregando && !resultadoAtual && !pausado && <div style={{ fontFamily: sans, fontSize: 12, color: inkSoft, textAlign: "center" }}>Calculando...</div>}
+
+        {!pausado && resultadoAtual && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <ListaPorCategoria>
+              {(item) => {
+                const v = Number(resultadoAtual[item.id] || 0);
+                const cor = v > 0 ? good : v === 0 ? amarelo : danger;
+                const corBg = v > 0 ? verdeSoft : v === 0 ? amareloSoft : dangerSoft;
+                return <div key={item.id} style={{ background: corBg, border: `1px solid ${line}`, borderRadius: 10, padding: "10px 14px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}><ItemIcon id={item.id} /><span style={{ fontFamily: sans, fontWeight: 600, fontSize: 14, color: ink }}>{item.nome}</span></div>
+                  <span style={{ fontFamily: sans, fontWeight: 800, fontSize: 16, color: cor }}>{v}</span>
+                </div>;
+              }}
+            </ListaPorCategoria>
+          </div>
+        )}
+
+        <div style={{ fontFamily: sans, fontSize: 10.5, color: inkSoft, textAlign: "center", background: "#F7F2EC", borderRadius: 8, padding: "7px 10px" }}>
+          {pausado
+            ? "O resultado de hoje já foi congelado às 23:30. O cálculo do novo dia recomeça às 00:01."
+            : "Calculando continuamente até 23:30, quando o resultado do dia é congelado."}
+        </div>
       </div>
 
-      {erro && <div style={{ fontFamily: sans, fontSize: 11.5, color: danger, textAlign: "center" }}>
-        Não foi possível carregar o estoque esperado.
-      </div>}
-      {carregando && !resultado && <div style={{ fontFamily: sans, fontSize: 12, color: inkSoft, textAlign: "center" }}>Calculando...</div>}
+      {congelado && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <div style={{
+            display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+            background: verdeSoft, border: `1px solid ${good}`, color: good,
+            borderRadius: 10, padding: "11px 14px", fontFamily: sans, fontWeight: 800, fontSize: 13.5, textAlign: "center",
+          }}>
+            🔒 Resultados congelados da data {formatarDataDeTimestamp(congelado.esperado_congelado_em)}
+          </div>
 
-      {resultado && <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        <ListaPorCategoria>
-          {(item) => {
-            const v = Number(resultado[item.id] || 0);
-            const cor = v > 0 ? good : v === 0 ? amarelo : danger;
-            const corBg = v > 0 ? verdeSoft : v === 0 ? amareloSoft : dangerSoft;
-            return <div key={item.id} style={{ background: corBg, border: `1px solid ${line}`, borderRadius: 10, padding: "10px 14px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}><ItemIcon id={item.id} /><span style={{ fontFamily: sans, fontWeight: 600, fontSize: 14, color: ink }}>{item.nome}</span></div>
-              <span style={{ fontFamily: sans, fontWeight: 800, fontSize: 16, color: cor }}>{v}</span>
-            </div>;
-          }}
-        </ListaPorCategoria>
-      </div>}
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <ListaPorCategoria>
+              {(item) => {
+                const v = Number((congelado.esperado || {})[item.id] || 0);
+                const cor = v > 0 ? good : v === 0 ? amarelo : danger;
+                const corBg = v > 0 ? verdeSoft : v === 0 ? amareloSoft : dangerSoft;
+                return <div key={item.id} style={{ background: corBg, border: `1px solid ${line}`, borderRadius: 10, padding: "10px 14px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}><ItemIcon id={item.id} /><span style={{ fontFamily: sans, fontWeight: 600, fontSize: 14, color: ink }}>{item.nome}</span></div>
+                  <span style={{ fontFamily: sans, fontWeight: 800, fontSize: 16, color: cor }}>{v}</span>
+                </div>;
+              }}
+            </ListaPorCategoria>
+          </div>
 
-      <div style={{ fontFamily: sans, fontSize: 10.5, color: congelado ? good : inkSoft, textAlign: "center", background: congelado ? verdeSoft : "#F7F2EC", borderRadius: 8, padding: "7px 10px" }}>
-        {congelado
-          ? "Cálculo finalizado após 22h. Resultado trancado para o confronto das 10h do próximo dia."
-          : "Até 22h, o resultado acompanha as atualizações. Às 22h ele será congelado para o próximo dia."}
-      </div>
+          <div style={{ fontFamily: sans, fontSize: 10.5, color: good, textAlign: "center", background: verdeSoft, borderRadius: 8, padding: "7px 10px" }}>
+            Estes dados ficam disponíveis para consulta e serão usados na fórmula de confronto.
+          </div>
+        </div>
+      )}
     </div>
   );
 }
