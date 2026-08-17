@@ -228,6 +228,11 @@ function formatarData(iso) {
   const [y, m, d] = iso.split("-");
   return `${d}/${m}`;
 }
+function formatarDataCompleta(iso) {
+  if (!iso) return "";
+  const [y, m, d] = iso.split("-");
+  return `${d}/${m}/${y}`;
+}
 function formatarDataHora(ts) {
   const d = new Date(ts);
   return d.toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
@@ -640,8 +645,13 @@ function DateBar({ data, setData }) {
     <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: accentSoft, borderRadius: 10, padding: "8px 12px" }}>
         <span style={{ fontFamily: sans, fontSize: 12, fontWeight: 700, color: accent }}>Referente ao dia</span>
-        <input type="date" value={data} onChange={(e) => setData(e.target.value)}
-          style={{ fontFamily: sans, fontSize: 13, border: `1px solid ${line}`, borderRadius: 6, padding: "4px 6px", background: bloqueada ? "#f3f3f3" : "#fff", color: ink }} />
+        <div style={{ position: "relative", display: "inline-block" }}>
+          <div style={{ fontFamily: sans, fontSize: 13, border: `1px solid ${line}`, borderRadius: 6, padding: "4px 8px", background: bloqueada ? "#f3f3f3" : "#fff", color: ink, pointerEvents: "none" }}>
+            {formatarDataCompleta(data)}
+          </div>
+          <input type="date" value={data} onChange={(e) => setData(e.target.value)}
+            style={{ position: "absolute", inset: 0, opacity: 0, width: "100%", height: "100%", cursor: "pointer" }} />
+        </div>
       </div>
       {bloqueada && (
         <div style={{ fontFamily: sans, fontSize: 11, color: inkSoft, textAlign: "center" }}>
