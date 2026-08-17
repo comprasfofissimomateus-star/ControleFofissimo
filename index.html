@@ -810,9 +810,9 @@ function EntradaRow({ nome, dados, onChangeQtd, onAnexar, onRemoverAnexo, iconId
       </div>
 
       {liberado ? (
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", minWidth: 0, overflow: "hidden" }}>
           <img src={dados.foto} alt="Comprovante" style={{ width: 44, height: 44, objectFit: "cover", borderRadius: 6, border: `1px solid ${line}` }} />
-          <span style={{ fontFamily: sans, fontSize: 12, color: inkSoft, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{dados.nomeArquivo}</span>
+          <span style={{ fontFamily: sans, fontSize: 12, color: inkSoft, flex: 1, minWidth: 0, maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={dados.nomeArquivo}>{dados.nomeArquivo}</span>
           {!bloqueado && (
             <button onClick={onRemoverAnexo} style={{ ...btnStep, color: danger, borderColor: danger }}>
               <Icon name="trash" size={13} />
