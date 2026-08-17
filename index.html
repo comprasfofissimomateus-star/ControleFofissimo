@@ -91,6 +91,20 @@
     100% { opacity: 1; transform: translateX(0); }
   }
 
+  .btn-sair {
+    border: 1px solid #DCC9B2;
+    background: #FFFFFF;
+    color: #8C3B2E;
+    border-radius: 7px;
+    padding: 4px 8px;
+    font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
+    font-size: 10.5px;
+    font-weight: 700;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .btn-sair:active { transform: scale(0.97); }
+
   .spinner-simple {
     width: 14px;
     height: 14px;
@@ -134,8 +148,6 @@ const ITEMS = [
   { id: "croissant", nome: "Croissant" },
 ];
 
-const SENHA_GERAL = "170991";
-
 function abaDoTipo(tipo) {
   if (tipo === "contagem") return "Estoque";
   if (tipo === "entrada") return "Entradas";
@@ -147,14 +159,23 @@ function abaDoTipo(tipo) {
 const SUPABASE_URL = "https://ktdqcgyththfdoxapxzu.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable_IVhzXI1s-idhKn_6LI8nPQ_307mZA5E";
 const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+let PERFIL_USUARIO_ATUAL = null;
 
-const USUARIO_STORAGE_KEY = "fofissimo_usuario_nome";
-function obterUsuarioNome() {
-  try { return (localStorage.getItem(USUARIO_STORAGE_KEY) || "").trim(); }
-  catch (_) { return ""; }
+
+async function carregarPerfilUsuario(userId) {
+  if (!userId) return null;
+  const { data, error } = await sb
+    .from("perfis")
+    .select("id, usuario, nome, permissoes")
+    .eq("id", userId)
+    .single();
+  if (error) throw new Error("Perfil do usuário não encontrado.");
+  return data;
 }
-function salvarUsuarioNome(nome) {
-  try { localStorage.setItem(USUARIO_STORAGE_KEY, (nome || "").trim()); } catch (_) {}
+
+function temPermissaoLocal(permissoes, permissao) {
+  const lista = Array.isArray(permissoes) ? permissoes : [];
+  return lista.includes("admin") || lista.includes(permissao);
 }
 
 function hojeStr() {
@@ -317,7 +338,7 @@ async function salvarRegistro({ item_id, data, tipo, quantidade, foto_url, nome_
       item_id,
       data,
       quantidade,
-      usuario_nome: obterUsuarioNome() || "Não informado",
+      usuario_nome: PERFIL_USUARIO_ATUAL?.nome || PERFIL_USUARIO_ATUAL?.usuario || "Não informado",
     });
   }
   return !error;
@@ -957,78 +978,35 @@ function Confronto() {
   const [etapaTexto, setEtapaTexto] = useState("");
   const [msgFinal, setMsgFinal] = useState(null);
   const [recarregarChave, setRecarregarChave] = useState(0);
-  const [pedirSenha, setPedirSenha] = useState(false);
-
-  const iniciarConfronto = () => {
+  const iniciarConfronto = async () => {
     if (rodando) return;
-    setPedirSenha(true);
-  };
-
-  const confrontarAgora = () => {
     setMsgFinal(null);
     setRodando(true);
-    setProgresso(0);
-    let passo = 0;
-    const proximo = async () => {
-      if (passo >= ETAPAS_CONFRONTO.length) {
-        try {
-          const hoje = hojeStr();
-
-          const [inicialRes, entradasRes, perdasRes, vendasRes] = await Promise.all([
-            sb.from("registros").select("item_id, quantidade").eq("tipo", "contagem").eq("data", hoje),
-            sb.from("registros").select("item_id, quantidade").eq("tipo", "entrada").eq("data", hoje),
-            sb.from("registros").select("item_id, quantidade").eq("tipo", "perda").eq("data", hoje),
-            sb.from("registros").select("item_id, quantidade").eq("tipo", "venda").eq("data", hoje),
-          ]);
-          if (inicialRes.error || entradasRes.error || perdasRes.error || vendasRes.error) {
-            throw new Error("Não foi possível ler os dados do banco.");
-          }
-
-          const estoqueInicial = Object.fromEntries(ITEMS.map((i) => [i.id, 0]));
-          (inicialRes.data || []).forEach((r) => { estoqueInicial[r.item_id] = r.quantidade; });
-
-          const estoqueAtual = Object.fromEntries(ITEMS.map((i) => [i.id, 0]));
-          (entradasRes.data || []).forEach((r) => { estoqueAtual[r.item_id] += r.quantidade; });
-          (perdasRes.data || []).forEach((r) => { estoqueAtual[r.item_id] -= r.quantidade; });
-          (vendasRes.data || []).forEach((r) => { estoqueAtual[r.item_id] -= r.quantidade; });
-
-          const executadoEm = new Date().toISOString();
-          const linhas = ITEMS.map((item) => {
-            const inicial = estoqueInicial[item.id];
-            const atual = estoqueAtual[item.id];
-            const diferenca = atual - inicial;
-            return {
-              data_referencia: hoje,
-              executado_em: executadoEm,
-              item_id: item.id,
-              status: diferenca !== 0 ? "alerta" : "ok",
-              estoque_esperado: inicial,
-              estoque_contado: atual,
-              diferenca,
-            };
-          });
-
-          const { error: erroInsert } = await sb.from("confrontos").insert(linhas);
-          if (erroInsert) throw new Error(erroInsert.message);
-
-          const temInconsistencia = linhas.some((l) => l.status === "alerta");
-          setMsgFinal({
-            ok: true,
-            texto: temInconsistencia ? "Confronto concluído: foram encontradas inconsistências." : "Confronto concluído: tudo bate certinho.",
-          });
-        } catch (e) {
-          setMsgFinal({ ok: false, texto: "Erro: " + (e && e.message ? e.message : String(e)) });
-        }
-        setRodando(false);
-        setRecarregarChave((k) => k + 1);
-        return;
-      }
-      setEtapaTexto(ETAPAS_CONFRONTO[passo]);
-      setProgresso(Math.round(((passo + 1) / ETAPAS_CONFRONTO.length) * 100));
-      passo++;
-      setTimeout(proximo, 450);
-    };
-    proximo();
+    setProgresso(10);
+    setEtapaTexto("Conectando ao Supabase...");
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      setProgresso(45);
+      setEtapaTexto("Executando confronto oficial...");
+      const { data, error } = await sb.functions.invoke("confronto_diario", {
+        body: {}
+      });
+      if (error) throw new Error(error.message || "Não foi possível executar o confronto.");
+      const alertas = Number(data?.alertas || 0);
+      setProgresso(100);
+      setEtapaTexto("Confronto concluído.");
+      setMsgFinal({
+        ok: true,
+        texto: alertas > 0
+          ? `Confronto concluído: ${alertas} inconsistência(s) encontrada(s).`
+          : "Confronto concluído: tudo bate certinho."
+      });
+    } catch (e) {
+      setMsgFinal({ ok: false, texto: "Erro: " + (e && e.message ? e.message : String(e)) });
+    } finally {
+      setRodando(false);
+      setRecarregarChave((k) => k + 1);
+    }
   };
 
   return (
@@ -1044,29 +1022,6 @@ function Confronto() {
           {rodando ? "Analisando..." : "⚔ Confrontar agora"}
         </button>
       </div>
-
-      {pedirSenha && !rodando && (
-        <div style={{
-          position: "fixed", inset: 0, zIndex: 100, background: "rgba(59,42,30,0.35)",
-          display: "flex", alignItems: "center", justifyContent: "center", padding: 20
-        }}>
-          <div style={{
-            width: "min(320px, 100%)", background: card, border: `1px solid ${line}`,
-            borderRadius: 14, boxShadow: "0 16px 40px rgba(59,42,30,0.25)"
-          }}>
-            <SenhaGate
-              titulo="Digite a senha para realizar o confronto"
-              senhaCerta={SENHA_GERAL}
-              onEntrar={() => { setPedirSenha(false); confrontarAgora(); }}
-            />
-            <button onClick={() => setPedirSenha(false)} style={{
-              display: "block", margin: "-4px auto 14px", background: "transparent",
-              border: "none", color: inkSoft, fontFamily: sans, fontSize: 12,
-              cursor: "pointer"
-            }}>Cancelar</button>
-          </div>
-        </div>
-      )}
 
       {rodando && (
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -1087,19 +1042,19 @@ function Confronto() {
       <UltimoConfronto recarregarChave={recarregarChave} />
 
       <div style={{ fontFamily: sans, fontSize: 10.5, color: inkSoft, textAlign: "center" }}>
-        Compara o estoque atual (entradas − perdas − vendas de hoje) com o estoque inicial do dia.
+        O confronto oficial considera o estoque congelado às 23:30 e todas as entradas, vendas e perdas do ciclo antes da comparação das 23h do dia seguinte.
       </div>
     </div>
   );
 }
 
 const TABS = [
-  { id: "estoque", label: "Estoque inicial do dia", icone: "tabEstoque" },
-  { id: "entradas", label: "Entradas", icone: "tabEntradas" },
-  { id: "perdas", label: "Perdas", icone: "tabPerdas" },
-  { id: "financeiro", label: "Vendas", icone: "tabVendas" },
-  { id: "confronto", label: "Confronto", icone: "tabConfronto" },
-  { id: "historico", label: "Histórico", icone: "historico" },
+  { id: "estoque", label: "Estoque inicial do dia", icone: "tabEstoque", permissao: "estoque" },
+  { id: "entradas", label: "Entradas", icone: "tabEntradas", permissao: "entradas" },
+  { id: "perdas", label: "Perdas", icone: "tabPerdas", permissao: "perdas" },
+  { id: "financeiro", label: "Vendas", icone: "tabVendas", permissao: "financeiro" },
+  { id: "confronto", label: "Confronto", icone: "tabConfronto", permissao: "confronto" },
+  { id: "historico", label: "Histórico", icone: "historico", permissao: "historico" },
 ];
 
 function HistoricoAlteracoes() {
@@ -1148,32 +1103,199 @@ function HistoricoAlteracoes() {
   );
 }
 
+function TelaLogin({ onLogin }) {
+  const [usuario, setUsuario] = useState("");
+  const [senha, setSenha] = useState("");
+  const [erro, setErro] = useState("");
+  const [entrando, setEntrando] = useState(false);
+
+  const entrar = async (e) => {
+    e.preventDefault();
+    setErro("");
+    setEntrando(true);
+    const { data, error } = await sb.auth.signInWithPassword({
+      email: `${usuario.trim().toLowerCase()}@fofissimo.com.br`,
+      password: senha,
+    });
+    if (error) {
+      setErro("E-mail ou senha incorretos.");
+      setEntrando(false);
+      return;
+    }
+    try {
+      const perfil = await carregarPerfilUsuario(data.user.id);
+      PERFIL_USUARIO_ATUAL = perfil;
+      onLogin(data.user, perfil);
+    } catch (err) {
+      await sb.auth.signOut();
+      setErro(err.message || "Não foi possível carregar seu perfil.");
+    } finally {
+      setEntrando(false);
+    }
+  };
+
+  return (
+    <div style={{ minHeight: "100vh", background: bgStripes, display: "flex", alignItems: "center", justifyContent: "center", padding: 20, fontFamily: sans }}>
+      <form onSubmit={entrar} style={{ width: "min(360px, 100%)", background: card, borderRadius: 20, border: `1px solid ${line}`, boxShadow: "0 16px 40px rgba(59,42,30,0.18)", padding: 24 }}>
+        <div style={{ fontFamily: sansArredondado, fontWeight: 800, fontSize: 26, color: ink, textAlign: "center" }}>Fofíssimo Controle</div>
+        <div style={{ color: inkSoft, fontSize: 12, textAlign: "center", margin: "4px 0 20px" }}>Entre com seu usuário</div>
+        <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: ink, marginBottom: 6 }}>Usuário</label>
+        <input
+          type="text"
+          value={usuario}
+          onChange={(e) => setUsuario(e.target.value.replace(/@.*$/, ""))}
+          autoComplete="username"
+          inputMode="text"
+          required
+          style={{ width: "100%", border: `1px solid ${line}`, borderRadius: 9, padding: "10px 11px", fontFamily: sans, fontSize: 13, marginBottom: 12 }}
+        />
+        <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: ink, marginBottom: 6 }}>Senha</label>
+        <input
+          type="password"
+          value={senha}
+          onChange={(e) => setSenha(e.target.value)}
+          autoComplete="current-password"
+          required
+          style={{ width: "100%", border: `1px solid ${line}`, borderRadius: 9, padding: "10px 11px", fontFamily: sans, fontSize: 13 }}
+        />
+        {erro && <div style={{ marginTop: 10, color: danger, background: dangerSoft, borderRadius: 8, padding: "8px 10px", fontSize: 11.5 }}>{erro}</div>}
+        <button type="submit" disabled={entrando} style={{ width: "100%", marginTop: 16, border: "none", borderRadius: 10, padding: "11px", background: accent, color: "#fff", fontFamily: sans, fontWeight: 800, cursor: entrando ? "default" : "pointer", opacity: entrando ? 0.7 : 1 }}>
+          {entrando ? "Entrando..." : "Entrar"}
+        </button>
+      </form>
+    </div>
+  );
+}
+
 function App() {
   const [tab, setTab] = useState("estoque");
-  const [usuarioNome, setUsuarioNome] = useState(() => obterUsuarioNome());
+  const [sessao, setSessao] = useState(null);
+  const [perfil, setPerfil] = useState(null);
+  const [carregandoAuth, setCarregandoAuth] = useState(true);
+  const [erroAuth, setErroAuth] = useState("");
 
-  const mudarUsuario = (valor) => {
-    setUsuarioNome(valor);
-    salvarUsuarioNome(valor);
+  useEffect(() => {
+    let ativo = true;
+
+    const carregarSessao = async () => {
+      const { data, error } = await sb.auth.getSession();
+      if (!ativo) return;
+      if (error) {
+        setErroAuth("Não foi possível verificar a sessão.");
+        setCarregandoAuth(false);
+        return;
+      }
+      if (!data.session) {
+        PERFIL_USUARIO_ATUAL = null;
+        setSessao(null);
+        setPerfil(null);
+        setCarregandoAuth(false);
+        return;
+      }
+      try {
+        const p = await carregarPerfilUsuario(data.session.user.id);
+        if (!ativo) return;
+        PERFIL_USUARIO_ATUAL = p;
+        setSessao(data.session);
+        setPerfil(p);
+        setErroAuth("");
+      } catch (e) {
+        await sb.auth.signOut();
+        if (!ativo) return;
+        setErroAuth(e.message || "Perfil não encontrado.");
+        setSessao(null);
+        setPerfil(null);
+      } finally {
+        if (ativo) setCarregandoAuth(false);
+      }
+    };
+
+    carregarSessao();
+
+    const { data: listener } = sb.auth.onAuthStateChange(async (event, session) => {
+      if (!ativo) return;
+      if (!session) {
+        PERFIL_USUARIO_ATUAL = null;
+        setSessao(null);
+        setPerfil(null);
+        setTab("estoque");
+        setCarregandoAuth(false);
+        return;
+      }
+      try {
+        const p = await carregarPerfilUsuario(session.user.id);
+        if (!ativo) return;
+        PERFIL_USUARIO_ATUAL = p;
+        setSessao(session);
+        setPerfil(p);
+        setErroAuth("");
+      } catch (e) {
+        await sb.auth.signOut();
+        if (!ativo) return;
+        setErroAuth(e.message || "Perfil não encontrado.");
+        setSessao(null);
+        setPerfil(null);
+      } finally {
+        if (ativo) setCarregandoAuth(false);
+      }
+    });
+
+    return () => {
+      ativo = false;
+      listener?.subscription?.unsubscribe();
+    };
+  }, []);
+
+  const sair = async () => {
+    await sb.auth.signOut();
   };
+
+  if (carregandoAuth) {
+    return (
+      <div style={{ minHeight: "100vh", background: bgStripes, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: sans, color: inkSoft, fontSize: 13 }}>
+        Verificando acesso...
+      </div>
+    );
+  }
+
+  if (!sessao || !perfil) {
+    return <TelaLogin onLogin={(usuario, p) => { setSessao({ user: usuario }); setPerfil(p); setTab("estoque"); }} />;
+  }
+
+  const pode = (p) => temPermissaoLocal(perfil.permissoes, p);
+  const tabsVisiveis = TABS.filter((t) => pode(t.permissao));
+  const tabAtualValida = tabsVisiveis.some((t) => t.id === tab);
+  const tabExibida = tabAtualValida ? tab : (tabsVisiveis[0]?.id || "estoque");
+
+  if (tabsVisiveis.length === 0) {
+    return (
+      <div style={{ minHeight: "100vh", background: bgStripes, display: "flex", alignItems: "center", justifyContent: "center", padding: 20, fontFamily: sans }}>
+        <div style={{ width: "min(360px,100%)", background: card, border: `1px solid ${line}`, borderRadius: 16, padding: 22, textAlign: "center" }}>
+          <div style={{ fontWeight: 800, color: danger, marginBottom: 8 }}>Sem permissões</div>
+          <div style={{ color: inkSoft, fontSize: 12 }}>Seu perfil não possui acesso a nenhuma área do sistema.</div>
+          <button onClick={sair} style={{ marginTop: 14, border: "none", borderRadius: 9, padding: "9px 16px", background: accent, color: "#fff", fontWeight: 800 }}>Sair</button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div style={{ minHeight: "100vh", background: bgStripes, display: "flex", flexDirection: "column", alignItems: "center", padding: "24px 0", fontFamily: sans }}>
       <div style={{ width: 390, maxWidth: "100%", background: card, borderRadius: 20, border: `1px solid ${line}`, boxShadow: "0 16px 40px rgba(59,42,30,0.18)", overflow: "hidden", display: "flex", flexDirection: "column", height: 720, flexShrink: 0 }}>
         <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
           <div style={{ width: 96, flexShrink: 0, background: accentSoft, padding: "14px 8px", display: "flex", flexDirection: "column", gap: 10, overflowY: "auto" }}>
-            {TABS.map((t) => (
+            {tabsVisiveis.map((t) => (
               <button key={t.id} onClick={() => setTab(t.id)} style={{
-                border: tab === t.id ? "1px solid #5A341C" : `1.5px solid ${line}`,
+                border: tabExibida === t.id ? "1px solid #5A341C" : `1.5px solid ${line}`,
                 borderRadius: 14, padding: "12px 4px", cursor: "pointer",
                 aspectRatio: "1 / 1",
                 display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 5,
-                background: tab === t.id ? "linear-gradient(135deg, #5A341C, #7A4A22)" : card,
-                color: tab === t.id ? "#fff" : accent,
-                boxShadow: tab === t.id ? "0 4px 10px rgba(90,52,28,0.45)" : "0 1px 3px rgba(59,42,30,0.08)",
+                background: tabExibida === t.id ? "linear-gradient(135deg, #5A341C, #7A4A22)" : card,
+                color: tabExibida === t.id ? "#fff" : accent,
+                boxShadow: tabExibida === t.id ? "0 4px 10px rgba(90,52,28,0.45)" : "0 1px 3px rgba(59,42,30,0.08)",
                 transition: "background 0.2s ease, box-shadow 0.2s ease, border 0.2s ease",
               }}>
-                <Icon name={t.icone} size={18} color={tab === t.id ? "#fff" : accent} />
+                <Icon name={t.icone} size={18} color={tabExibida === t.id ? "#fff" : accent} />
                 <span style={{ fontFamily: sansArredondado, fontWeight: 800, fontSize: 13.5, lineHeight: 1.2, textAlign: "center" }}>{t.label}</span>
               </button>
             ))}
@@ -1181,27 +1303,23 @@ function App() {
 
           <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
             <div style={{ padding: "16px 16px 10px 20px" }}>
-              <div style={{ fontFamily: sansArredondado, fontWeight: 800, fontSize: 18, color: ink, marginBottom: 2 }}>Fofíssimo Controle</div>
-              <div style={{ display: "flex", alignItems: "center", gap: 7, marginTop: 5 }}>
-                <span style={{ fontFamily: sans, fontSize: 10.5, color: inkSoft, flexShrink: 0 }}>Usuário:</span>
-                <input
-                  value={usuarioNome}
-                  onChange={(e) => mudarUsuario(e.target.value)}
-                  placeholder="Digite seu nome"
-                  aria-label="Nome do usuário"
-                  style={{ minWidth: 0, flex: 1, border: `1px solid ${line}`, borderRadius: 7, padding: "5px 7px", fontFamily: sans, fontSize: 11, color: ink, background: bg }}
-                />
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontFamily: sansArredondado, fontWeight: 800, fontSize: 18, color: ink, marginBottom: 1 }}>Fofíssimo Controle</div>
+                  <div style={{ fontFamily: sans, fontSize: 10.5, color: inkSoft }}>{perfil.nome || perfil.usuario}</div>
+                </div>
+                <button className="btn-sair" onClick={sair} title="Sair da conta">Sair</button>
               </div>
-              <div style={{ fontFamily: sans, fontSize: 10, color: inkSoft, marginTop: 3 }}>Alterações ficam salvas com o nome informado.</div>
+              {erroAuth && <div style={{ marginTop: 5, color: danger, fontSize: 10.5 }}>{erroAuth}</div>}
             </div>
 
-            <div key={tab} className="tab-fan-enter" style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column" }}>
-              {tab === "estoque" && <Estoque dataInicial={hojeStr()} />}
-              {tab === "entradas" && <EntradasProtegido dataInicial={hojeStr()} />}
-              {tab === "perdas" && <PerdasProtegido dataInicial={hojeStr()} />}
-              {tab === "financeiro" && <Financeiro dataInicial={hojeStr()} />}
-              {tab === "confronto" && <Confronto />}
-              {tab === "historico" && <HistoricoAlteracoes />}
+            <div key={tabExibida} className="tab-fan-enter" style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column" }}>
+              {tabExibida === "estoque" && <Estoque dataInicial={hojeStr()} />}
+              {tabExibida === "entradas" && <EntradasProtegido dataInicial={hojeStr()} />}
+              {tabExibida === "perdas" && <PerdasProtegido dataInicial={hojeStr()} />}
+              {tabExibida === "financeiro" && <Financeiro dataInicial={hojeStr()} />}
+              {tabExibida === "confronto" && <Confronto />}
+              {tabExibida === "historico" && <HistoricoAlteracoes />}
             </div>
           </div>
         </div>
