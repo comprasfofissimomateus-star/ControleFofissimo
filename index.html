@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Estoque Fofíssimo</title>
+<title>Fofíssimo Controle</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
@@ -102,47 +102,6 @@
   @keyframes spin-simple {
     to { transform: rotate(360deg); }
   }
-  @keyframes pulsoAoVivo {
-    0% { box-shadow: 0 0 0 0 rgba(255,77,77,0.65); }
-    70% { box-shadow: 0 0 0 6px rgba(255,77,77,0); }
-    100% { box-shadow: 0 0 0 0 rgba(255,77,77,0); }
-  }
-
-  .placeholder-congelando {
-    position: relative;
-    overflow: hidden;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-    border-radius: 10px;
-    padding: 11px 14px;
-    text-align: center;
-    color: #2A5C8A;
-    background: repeating-linear-gradient(135deg, #DCEEFC 0px, #DCEEFC 10px, #C7E3F7 10px, #C7E3F7 20px);
-    border: 1.5px dashed #8FC1E8;
-    cursor: default;
-  }
-  .placeholder-congelando::before {
-    content: "";
-    position: absolute;
-    inset: 0;
-    background: linear-gradient(120deg, transparent 0%, rgba(255,255,255,0.55) 45%, transparent 65%);
-    background-size: 220% 100%;
-    animation: gelo-shimmer 2.6s ease-in-out infinite;
-  }
-  @keyframes gelo-shimmer {
-    0% { background-position: 130% 0; }
-    100% { background-position: -30% 0; }
-  }
-  .placeholder-congelando-icone {
-    display: inline-block;
-    animation: gelo-balanco 2.2s ease-in-out infinite;
-  }
-  @keyframes gelo-balanco {
-    0%, 100% { transform: rotate(-6deg); }
-    50% { transform: rotate(6deg); }
-  }
 </style>
 </head>
 <body>
@@ -168,38 +127,14 @@ const good = "#3B7A45";
 const sans = "ui-sans-serif, system-ui, -apple-system, sans-serif";
 const sansArredondado = "'Baloo 2', ui-rounded, ui-sans-serif, system-ui, sans-serif";
 
-const CATEGORIAS = [
-  {
-    id: "salgados",
-    nome: "Salgados",
-    itens: [
-      { id: "pao-de-queijo", nome: "Pão de queijo" },
-      { id: "empada-alho-poro", nome: "Empada de alho-poró" },
-      { id: "empada-carne-seca", nome: "Empada de carne seca" },
-      { id: "croissant", nome: "Croissant" },
-    ],
-  },
-  {
-    id: "bolos",
-    nome: "Bolos",
-    itens: [
-      { id: "bolinho-nutella", nome: "Bolinho de Nutella" },
-    ],
-  },
-  {
-    id: "bebidas",
-    nome: "Bebidas",
-    itens: [
-      { id: "agua", nome: "Água" },
-    ],
-  },
+const ITEMS = [
+  { id: "pao-de-queijo", nome: "Pão de queijo" },
+  { id: "agua", nome: "Água" },
+  { id: "bolinho-nutella", nome: "Bolinho de Nutella" },
+  { id: "croissant", nome: "Croissant" },
 ];
 
-// Lista simples, na mesma ordem das categorias — usada em todo o resto do
-// código (cálculos, ciclo automático, confronto etc.) exatamente como antes.
-const ITEMS = CATEGORIAS.flatMap((c) => c.itens);
-
-let usuarioAtualNome = "";
+const SENHA_GERAL = "170991";
 
 function abaDoTipo(tipo) {
   if (tipo === "contagem") return "Estoque";
@@ -213,73 +148,29 @@ const SUPABASE_URL = "https://ktdqcgyththfdoxapxzu.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable_IVhzXI1s-idhKn_6LI8nPQ_307mZA5E";
 const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-function dataLocalStr(d = new Date()) {
-  const ano = d.getFullYear();
-  const mes = String(d.getMonth() + 1).padStart(2, "0");
-  const dia = String(d.getDate()).padStart(2, "0");
-  return `${ano}-${mes}-${dia}`;
-}
 function hojeStr() {
-  return dataLocalStr();
+  const d = new Date();
+  return d.toISOString().slice(0, 10);
 }
 function ontemStr() {
-  const d = new Date();
-  d.setDate(d.getDate() - 1);
-  return dataLocalStr(d);
+  const d = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  return d.toISOString().slice(0, 10);
 }
 function amanhaStr() {
-  const d = new Date();
-  d.setDate(d.getDate() + 1);
-  return dataLocalStr(d);
-}
-function horaAtualDecimal() {
-  const d = new Date();
-  return d.getHours() + d.getMinutes() / 60 + d.getSeconds() / 3600;
-}
-function passouDas2330() {
-  return horaAtualDecimal() >= 23.5;
-}
-function antesDoResetDiario() {
-  return horaAtualDecimal() < (1 / 60);
-}
-function chegouAs10h() {
-  return horaAtualDecimal() >= 10;
-}
-function timestampLocalHojeHora(hora, minuto = 0, segundo = 0) {
-  const d = new Date();
-  d.setHours(hora, minuto, segundo, 0);
-  return d.toISOString();
+  const d = new Date(Date.now() + 24 * 60 * 60 * 1000);
+  return d.toISOString().slice(0, 10);
 }
 function ehDataPassada(data) {
   return data < hojeStr();
-}
-function ehDataFutura(data) {
-  return data > hojeStr();
-}
-function dataBloqueada(data) {
-  return data !== hojeStr();
 }
 function formatarData(iso) {
   if (!iso) return "";
   const [y, m, d] = iso.split("-");
   return `${d}/${m}`;
 }
-function formatarDataCompleta(iso) {
-  if (!iso) return "";
-  const [y, m, d] = iso.split("-");
-  return `${d}/${m}/${y}`;
-}
 function formatarDataHora(ts) {
   const d = new Date(ts);
   return d.toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
-}
-function formatarDataDeTimestamp(ts) {
-  const d = new Date(ts);
-  return d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
-}
-function formatarDataHoraCompleta(ts) {
-  const d = new Date(ts);
-  return d.toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 
 function normalizarTexto(txt) {
@@ -299,31 +190,6 @@ async function lerArquivoPlanilha(file) {
   const wb = XLSX.read(buffer, { type: "array" });
   const sheet = wb.Sheets[wb.SheetNames[0]];
   return XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" });
-}
-
-function lerArquivoComoDataUrl(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result);
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
-}
-
-function abrirDataUrlEmNovaAba(dataUrl, nomeArquivo) {
-  try {
-    const [cabecalho, base64] = dataUrl.split(",");
-    const mime = (cabecalho.match(/data:(.*);base64/) || [])[1] || "application/octet-stream";
-    const bin = atob(base64);
-    const bytes = new Uint8Array(bin.length);
-    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-    const blob = new Blob([bytes], { type: mime });
-    const url = URL.createObjectURL(blob);
-    window.open(url, "_blank");
-    setTimeout(() => URL.revokeObjectURL(url), 60000);
-  } catch (e) {
-    console.error("Não foi possível abrir o arquivo:", e);
-  }
 }
 
 // Procura, nas primeiras linhas, a linha de cabeçalho com as colunas "produto" e "numvendas"
@@ -429,25 +295,21 @@ async function buscarRegistros(tipo, data) {
   return { base, error: false };
 }
 
-async function salvarRegistro({ item_id, data, tipo, quantidade, foto_url, nome_arquivo, registrarAlteracao = true }) {
+async function salvarRegistro({ item_id, data, tipo, quantidade, foto_url, nome_arquivo }) {
   const payload = { item_id, data, tipo, quantidade };
   if (foto_url !== undefined) payload.foto_url = foto_url;
   if (nome_arquivo !== undefined) payload.nome_arquivo = nome_arquivo;
-
   const { error } = await sb
     .from("registros")
     .upsert(payload, { onConflict: "item_id,data,tipo" });
-
-  if (!error && registrarAlteracao) {
+  if (!error) {
     await sb.from("alteracoes").insert({
       aba: abaDoTipo(tipo),
       item_id,
       data,
       quantidade,
-      usuario_nome: usuarioAtualNome || "Usuário",
     });
   }
-
   return !error;
 }
 
@@ -457,20 +319,7 @@ function Icon({ name, size = 16, color = "currentColor" }) {
     minus: "M5 12h14",
     paperclip: "M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48",
     trash: "M3 6h18 M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2 M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6",
-    database: "M4 6c0-2 4-3 8-3s8 1 8 3-4 3-8 3-8-1-8-3Z M4 6v6c0 2 4 3 8 3s8-1 8-3V6 M4 12v6c0 2 4 3 8 3s8-1 8-3v-6",
-    eye: "M2.2 12s3.4-5 9.8-5 9.8 5 9.8 5-3.4 5-9.8 5-9.8-5-9.8-5Z M12 9.2a2.8 2.8 0 1 0 0 5.6 2.8 2.8 0 0 0 0-5.6Z",
-    dice: "M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z",
-    chevronDown: "M6 9l6 6 6-6",
   };
-  if (name === "database") {
-    return (
-      <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-        <ellipse cx="12" cy="6" rx="8" ry="3" />
-        <path d="M4 6v6c0 1.7 3.6 3 8 3s8-1.3 8-3V6" />
-        <path d="M4 12v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6" />
-      </svg>
-    );
-  }
   if (name === "lock") {
     return (
       <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -575,64 +424,7 @@ function ItemIcon({ id, size = 22 }) {
       </svg>
     );
   }
-  if (id === "empada-alho-poro" || id === "empada-carne-seca") {
-    return (
-      <svg {...box}>
-        <path d="M4 15c0-4.2 3.6-7.3 8-7.3s8 3.1 8 7.3c0 1.6-1.1 2.7-2.6 2.7H6.6C5.1 17.7 4 16.6 4 15Z"
-          fill="#C9924F" stroke="#8A5A26" strokeWidth="0.6" />
-        <path d="M6.3 15.1c1.1-.5 2.3-.5 3.4 0M10.3 15.1c1.1-.5 2.3-.5 3.4 0M14.3 15.1c1.1-.5 2-.4 3 0"
-          stroke="#8A5A26" strokeWidth="0.7" fill="none" strokeLinecap="round" />
-      </svg>
-    );
-  }
   return null;
-}
-
-// =========================
-// AGRUPAMENTO POR CATEGORIA (acordeão)
-// Usado em todas as abas que listam produtos (Estoque, Entradas, Perdas,
-// Vendas e Estoque esperado do Confronto) para manter o padrão visual.
-// =========================
-function useCategoriasAbertas() {
-  const [abertas, setAbertas] = useState({});
-  const toggle = (id) => setAbertas((prev) => ({ ...prev, [id]: !prev[id] }));
-  return { abertas, toggle };
-}
-
-function CategoriaBloco({ categoria, aberto, onToggle, children }) {
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-      <button onClick={onToggle} style={{
-        display: "flex", alignItems: "center", justifyContent: "space-between",
-        background: accentSoft, border: `1px solid ${line}`, borderRadius: 10,
-        padding: "10px 14px", cursor: "pointer", width: "100%", textAlign: "left"
-      }}>
-        <span style={{ fontFamily: sansArredondado, fontWeight: 800, fontSize: 14, color: accent }}>{categoria.nome}</span>
-        <span style={{ display: "inline-flex", transform: aberto ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.25s ease" }}>
-          <Icon name="chevronDown" size={16} color={accent} />
-        </span>
-      </button>
-      <div style={{ display: "grid", gridTemplateRows: aberto ? "1fr" : "0fr", transition: "grid-template-rows 0.3s ease", overflow: "hidden" }}>
-        <div style={{ display: "flex", flexDirection: "column", gap: 10, minHeight: 0 }}>
-          {children}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// items: função (item) => JSX. Percorre CATEGORIAS e renderiza cada bloco.
-function ListaPorCategoria({ children }) {
-  const { abertas, toggle } = useCategoriasAbertas();
-  return (
-    <>
-      {CATEGORIAS.map((cat) => (
-        <CategoriaBloco key={cat.id} categoria={cat} aberto={!!abertas[cat.id]} onToggle={() => toggle(cat.id)}>
-          {cat.itens.map((item) => children(item))}
-        </CategoriaBloco>
-      ))}
-    </>
-  );
 }
 
 function SparkleBurst({ triggerKey }) {
@@ -679,23 +471,16 @@ const btnStep = {
 
 function DateBar({ data, setData }) {
   const passada = ehDataPassada(data);
-  const futura = ehDataFutura(data);
-  const bloqueada = dataBloqueada(data);
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: accentSoft, borderRadius: 10, padding: "8px 12px" }}>
         <span style={{ fontFamily: sans, fontSize: 12, fontWeight: 700, color: accent }}>Referente ao dia</span>
-        <div style={{ position: "relative", display: "inline-block" }}>
-          <div style={{ fontFamily: sans, fontSize: 13, border: `1px solid ${line}`, borderRadius: 6, padding: "4px 8px", background: bloqueada ? "#f3f3f3" : "#fff", color: ink, pointerEvents: "none" }}>
-            {formatarDataCompleta(data)}
-          </div>
-          <input type="date" value={data} onChange={(e) => setData(e.target.value)}
-            style={{ position: "absolute", inset: 0, opacity: 0, width: "100%", height: "100%", cursor: "pointer" }} />
-        </div>
+        <input type="date" value={data} onChange={(e) => setData(e.target.value)}
+          style={{ fontFamily: sans, fontSize: 13, border: `1px solid ${line}`, borderRadius: 6, padding: "4px 6px", background: "#fff", color: ink }} />
       </div>
-      {bloqueada && (
+      {passada && (
         <div style={{ fontFamily: sans, fontSize: 11, color: inkSoft, textAlign: "center" }}>
-          {passada ? "Data passada" : "Data futura"} — somente visualização, não é possível editar.
+          Data passada — somente visualização, não é possível editar.
         </div>
       )}
     </div>
@@ -703,71 +488,39 @@ function DateBar({ data, setData }) {
 }
 
 function ContadorRow({ nome, valor, onChange, iconId, bloqueado }) {
-  const [rascunho, setRascunho] = useState(String(valor ?? 0));
-
-  useEffect(() => {
-    setRascunho(String(valor ?? 0));
-  }, [valor]);
-
-  const confirmar = () => {
+  const [burst, setBurst] = useState(0);
+  const mudar = (novoValor) => {
     if (bloqueado) return;
-    const numero = Math.max(0, parseInt(rascunho || "0", 10) || 0);
-    setRascunho(String(numero));
-    if (numero !== Number(valor ?? 0)) onChange(numero);
+    onChange(novoValor);
+    setBurst((b) => b + 1);
   };
-
   return (
     <div style={{ background: card, border: `1px solid ${line}`, borderRadius: 10, padding: "12px 14px", display: "flex", justifyContent: "space-between", alignItems: "center", opacity: bloqueado ? 0.6 : 1 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
         <ItemIcon id={iconId} />
         <span style={{ fontFamily: sans, fontWeight: 600, fontSize: 14.5, color: ink }}>{nome}</span>
       </div>
-
-      <input
-        type="number"
-        min="0"
-        inputMode="numeric"
-        value={rascunho}
-        disabled={bloqueado}
-        onChange={(e) => setRascunho(e.target.value)}
-        onBlur={confirmar}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") {
-            e.currentTarget.blur();
-          }
-        }}
-        style={{
-          width: 72,
-          textAlign: "center",
-          fontFamily: sans,
-          fontWeight: 700,
-          fontSize: 15,
-          border: `1px solid ${line}`,
-          borderRadius: 6,
-          padding: "7px 4px",
-          color: ink,
-          background: bloqueado ? "#f3f3f3" : "#fff"
-        }}
-      />
+      <div style={{ position: "relative", display: "flex", alignItems: "center", gap: 10 }}>
+        <SparkleBurst triggerKey={burst} />
+        <button onClick={() => mudar(Math.max(0, valor - 1))} disabled={bloqueado} style={{ ...btnStep, cursor: bloqueado ? "default" : "pointer" }}><Icon name="minus" size={14} /></button>
+        <input type="number" value={valor} readOnly={bloqueado} disabled={bloqueado}
+          onChange={(e) => mudar(Math.max(0, parseInt(e.target.value || "0", 10)))}
+          style={{ width: 48, textAlign: "center", fontFamily: sans, fontWeight: 700, fontSize: 15, border: `1px solid ${line}`, borderRadius: 6, padding: "5px 2px", color: ink }} />
+        <button onClick={() => mudar(valor + 1)} disabled={bloqueado} style={{ ...btnStep, cursor: bloqueado ? "default" : "pointer" }}><Icon name="plus" size={14} /></button>
+      </div>
     </div>
   );
 }
+
 function EntradaRow({ nome, dados, onChangeQtd, onAnexar, onRemoverAnexo, iconId, bloqueado }) {
   const fileRef = useRef(null);
   const liberado = !!dados.foto;
-  const [rascunho, setRascunho] = useState(String(dados?.qtd ?? 0));
-
-  useEffect(() => {
-    setRascunho(String(dados?.qtd ?? 0));
-  }, [dados?.qtd]);
-
-  const confirmarQtd = () => {
-    if (bloqueado || !liberado) return;
-    const numero = Math.max(0, parseInt(rascunho || "0", 10) || 0);
-    setRascunho(String(numero));
-    if (numero !== Number(dados?.qtd ?? 0)) onChangeQtd(numero);
+  const [burst, setBurst] = useState(0);
+  const mudarQtd = (v) => {
+    if (bloqueado) return;
+    onChangeQtd(v);
+    setBurst((b) => b + 1);
   };
-
   const handleFile = (e) => {
     if (bloqueado) return;
     const file = e.target.files[0];
@@ -777,7 +530,6 @@ function EntradaRow({ nome, dados, onChangeQtd, onAnexar, onRemoverAnexo, iconId
     reader.readAsDataURL(file);
     e.target.value = "";
   };
-
   return (
     <div style={{ background: card, border: `1px solid ${line}`, borderRadius: 10, padding: "12px 14px", display: "flex", flexDirection: "column", gap: 10, opacity: bloqueado ? 0.6 : 1 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -785,43 +537,23 @@ function EntradaRow({ nome, dados, onChangeQtd, onAnexar, onRemoverAnexo, iconId
           <ItemIcon id={iconId} />
           <span style={{ fontFamily: sans, fontWeight: 600, fontSize: 14.5, color: ink }}>{nome}</span>
         </div>
-
         {liberado && (
-          <input
-            type="number"
-            min="0"
-            inputMode="numeric"
-            value={rascunho}
-            disabled={bloqueado}
-            onChange={(e) => setRascunho(e.target.value)}
-            onBlur={confirmarQtd}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") e.currentTarget.blur();
-            }}
-            style={{
-              width: 72,
-              textAlign: "center",
-              fontFamily: sans,
-              fontWeight: 700,
-              fontSize: 15,
-              border: `1px solid ${line}`,
-              borderRadius: 6,
-              padding: "7px 4px",
-              color: ink,
-              background: bloqueado ? "#f3f3f3" : "#fff"
-            }}
-          />
+          <div style={{ position: "relative", display: "flex", alignItems: "center", gap: 10 }}>
+            <SparkleBurst triggerKey={burst} />
+            <button onClick={() => mudarQtd(Math.max(0, dados.qtd - 1))} disabled={bloqueado} style={{ ...btnStep, cursor: bloqueado ? "default" : "pointer" }}><Icon name="minus" size={14} /></button>
+            <input type="number" value={dados.qtd} readOnly={bloqueado} disabled={bloqueado}
+              onChange={(e) => mudarQtd(Math.max(0, parseInt(e.target.value || "0", 10)))}
+              style={{ width: 48, textAlign: "center", fontFamily: sans, fontWeight: 700, fontSize: 15, border: `1px solid ${line}`, borderRadius: 6, padding: "5px 2px", color: ink }} />
+            <button onClick={() => mudarQtd(dados.qtd + 1)} disabled={bloqueado} style={{ ...btnStep, cursor: bloqueado ? "default" : "pointer" }}><Icon name="plus" size={14} /></button>
+          </div>
         )}
       </div>
-
       {liberado ? (
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0, width: "100%" }}>
           <img src={dados.foto} alt="Comprovante" style={{ width: 44, height: 44, objectFit: "cover", borderRadius: 6, border: `1px solid ${line}` }} />
-          <span style={{ fontFamily: sans, fontSize: 12, color: inkSoft, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{dados.nomeArquivo}</span>
+          <span title={dados.nomeArquivo} style={{ fontFamily: sans, fontSize: 12, color: inkSoft, flex: 1, minWidth: 0, maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{dados.nomeArquivo}</span>
           {!bloqueado && (
-            <button onClick={onRemoverAnexo} style={{ ...btnStep, color: danger, borderColor: danger }}>
-              <Icon name="trash" size={13} />
-            </button>
+            <button onClick={onRemoverAnexo} style={{ ...btnStep, color: danger, borderColor: danger }}><Icon name="trash" size={13} /></button>
           )}
         </div>
       ) : (
@@ -840,6 +572,7 @@ function EntradaRow({ nome, dados, onChangeQtd, onAnexar, onRemoverAnexo, iconId
     </div>
   );
 }
+
 function useDiaCarregado(tipo, dataInicial) {
   const [data, setData] = useState(dataInicial);
   const [valores, setValores] = useState(() => Object.fromEntries(ITEMS.map((i) => [i.id, tipo === "entrada" ? { qtd: 0, foto: null, nomeArquivo: null } : 0])));
@@ -863,7 +596,7 @@ function useDiaCarregado(tipo, dataInicial) {
 
 function Contador({ tipo, dataInicial }) {
   const { data, setData, valores, setValores, carregando, erro } = useDiaCarregado(tipo, dataInicial);
-  const bloqueado = dataBloqueada(data);
+  const bloqueado = ehDataPassada(data);
 
   const mudar = async (id, v) => {
     if (bloqueado) return;
@@ -876,13 +609,9 @@ function Contador({ tipo, dataInicial }) {
       <DateBar data={data} setData={setData} />
       {carregando && <div style={{ fontFamily: sans, fontSize: 12, color: inkSoft, textAlign: "center" }}>Carregando...</div>}
       {erro && <div style={{ fontFamily: sans, fontSize: 11.5, color: danger, textAlign: "center" }}>Não foi possível conectar ao banco de dados.</div>}
-      {!carregando && (
-        <ListaPorCategoria>
-          {(item) => (
-            <ContadorRow key={item.id} nome={item.nome} valor={valores[item.id]} onChange={(v) => mudar(item.id, v)} iconId={item.id} bloqueado={bloqueado} />
-          )}
-        </ListaPorCategoria>
-      )}
+      {!carregando && ITEMS.map((item) => (
+        <ContadorRow key={item.id} nome={item.nome} valor={valores[item.id]} onChange={(v) => mudar(item.id, v)} iconId={item.id} bloqueado={bloqueado} />
+      ))}
     </div>
   );
 }
@@ -897,7 +626,7 @@ function Estoque({ dataInicial }) {
 
 function Entradas({ dataInicial }) {
   const { data, setData, valores, setValores, carregando, erro } = useDiaCarregado("entrada", dataInicial);
-  const bloqueado = dataBloqueada(data);
+  const bloqueado = ehDataPassada(data);
 
   const mudarQtd = async (id, v) => {
     if (bloqueado) return;
@@ -920,37 +649,46 @@ function Entradas({ dataInicial }) {
       <DateBar data={data} setData={setData} />
       {carregando && <div style={{ fontFamily: sans, fontSize: 12, color: inkSoft, textAlign: "center" }}>Carregando...</div>}
       {erro && <div style={{ fontFamily: sans, fontSize: 11.5, color: danger, textAlign: "center" }}>Não foi possível conectar ao banco de dados.</div>}
-      {!carregando && (
-        <ListaPorCategoria>
-          {(item) => (
-            <EntradaRow key={item.id} nome={item.nome} dados={valores[item.id]} iconId={item.id} bloqueado={bloqueado}
-              onChangeQtd={(v) => mudarQtd(item.id, v)}
-              onAnexar={(dataUrl, nome) => anexar(item.id, dataUrl, nome)}
-              onRemoverAnexo={() => removerAnexo(item.id)} />
-          )}
-        </ListaPorCategoria>
-      )}
+      {!carregando && ITEMS.map((item) => (
+        <EntradaRow key={item.id} nome={item.nome} dados={valores[item.id]} iconId={item.id} bloqueado={bloqueado}
+          onChangeQtd={(v) => mudarQtd(item.id, v)}
+          onAnexar={(dataUrl, nome) => anexar(item.id, dataUrl, nome)}
+          onRemoverAnexo={() => removerAnexo(item.id)} />
+      ))}
+    </div>
+  );
+}
+
+function SenhaGate({ titulo, senhaCerta, onEntrar }) {
+  const [senha, setSenha] = useState("");
+  const [erro, setErro] = useState(false);
+  const tentar = () => {
+    if (senha === senhaCerta) onEntrar();
+    else setErro(true);
+  };
+  return (
+    <div style={{ padding: 16, display: "flex", flexDirection: "column", alignItems: "center", gap: 12, marginTop: 40 }}>
+      <div style={{ width: 44, height: 44, borderRadius: 99, background: accentSoft, display: "flex", alignItems: "center", justifyContent: "center", color: accent }}>
+        <Icon name="lock" size={20} />
+      </div>
+      <div style={{ fontFamily: sans, fontWeight: 700, fontSize: 15, color: ink }}>{titulo}</div>
+      <input type="password" inputMode="numeric" value={senha}
+        onChange={(e) => { setSenha(e.target.value); setErro(false); }}
+        onKeyDown={(e) => e.key === "Enter" && tentar()}
+        placeholder="Senha"
+        style={{ width: 160, textAlign: "center", fontFamily: sans, fontSize: 15, border: `1px solid ${erro ? danger : line}`, borderRadius: 8, padding: "9px" }} />
+      {erro && <div style={{ fontFamily: sans, fontSize: 12, color: danger }}>Senha incorreta</div>}
+      <button onClick={tentar} style={{ background: accent, color: "#fff", border: "none", borderRadius: 8, padding: "9px 22px", fontFamily: sans, fontWeight: 700, fontSize: 13.5, cursor: "pointer" }}>Entrar</button>
     </div>
   );
 }
 
 function Financeiro({ dataInicial }) {
   const { data, setData, valores, setValores, carregando, erro } = useDiaCarregado("venda", dataInicial);
-  const bloqueado = dataBloqueada(data);
+  const bloqueado = ehDataPassada(data);
   const fileInputRef = useRef(null);
   const [importando, setImportando] = useState(false);
   const [resumoImport, setResumoImport] = useState(null);
-  const [ultimoPdv, setUltimoPdv] = useState(null);
-  const [abrindoPdv, setAbrindoPdv] = useState(false);
-  const [apagandoPdv, setApagandoPdv] = useState(false);
-
-  const buscarUltimoPdv = async (dataAlvo) => {
-    const { data: linha, error } = await sb.from("pdv_importacoes")
-      .select("nome_arquivo, importado_em").eq("data", dataAlvo).maybeSingle();
-    if (!error) setUltimoPdv(linha || null);
-  };
-
-  useEffect(() => { buscarUltimoPdv(data); }, [data]);
 
   const mudar = async (id, v) => {
     if (bloqueado) return;
@@ -965,51 +703,22 @@ function Financeiro({ dataInicial }) {
     setImportando(true);
     setResumoImport(null);
     try {
-      const [linhas, arquivoDataUrl] = await Promise.all([
-        lerArquivoPlanilha(file),
-        lerArquivoComoDataUrl(file),
-      ]);
+      const linhas = await lerArquivoPlanilha(file);
       const resultado = processarPlanilhaPDV(linhas);
-      const novosValores = {};
       // Zera todos os produtos antes de aplicar o novo arquivo importado
       for (const item of ITEMS) {
-        await salvarRegistro({ item_id: item.id, data, tipo: "venda", quantidade: 0, registrarAlteracao: false });
-        novosValores[item.id] = 0;
+        await mudar(item.id, 0);
       }
       const encontrados = [];
       const naoEncontrados = [];
       for (const item of ITEMS) {
         if (resultado[item.id] !== null) {
-          await salvarRegistro({ item_id: item.id, data, tipo: "venda", quantidade: resultado[item.id], registrarAlteracao: false });
-          novosValores[item.id] = resultado[item.id];
+          await mudar(item.id, resultado[item.id]);
           encontrados.push(`${item.nome}: ${resultado[item.id]}`);
         } else {
           naoEncontrados.push(item.nome);
         }
       }
-      setValores((prev) => ({ ...prev, ...novosValores }));
-
-      // Guarda o arquivo importado para consulta posterior (1 por dia — a última importação substitui a anterior)
-      await sb.from("pdv_importacoes").upsert({
-        data,
-        nome_arquivo: file.name,
-        arquivo_base64: arquivoDataUrl,
-        importado_em: new Date().toISOString(),
-        usuario_nome: usuarioAtualNome || "Usuário",
-      }, { onConflict: "data" });
-
-      // Uma única linha no Histórico, em vez de uma por produto (evita flood)
-      const { error: erroHistorico } = await sb.from("alteracoes").insert({
-        aba: "Vendas",
-        item_id: null,
-        data,
-        quantidade: null,
-        usuario_nome: usuarioAtualNome || "Usuário",
-        arquivo_nome: file.name,
-      });
-      if (erroHistorico) console.error("Não foi possível registrar no histórico:", erroHistorico);
-
-      await buscarUltimoPdv(data);
       setResumoImport({ ok: true, encontrados, naoEncontrados });
     } catch (err) {
       setResumoImport({ ok: false, texto: "Não foi possível ler o arquivo. Confira se é um .xlsx válido." });
@@ -1017,93 +726,21 @@ function Financeiro({ dataInicial }) {
     setImportando(false);
   };
 
-  const visualizarUltimoPdv = async () => {
-    setAbrindoPdv(true);
-    try {
-      const { data: linha, error } = await sb.from("pdv_importacoes")
-        .select("nome_arquivo, arquivo_base64").eq("data", data).maybeSingle();
-      if (!error && linha?.arquivo_base64) {
-        abrirDataUrlEmNovaAba(linha.arquivo_base64, linha.nome_arquivo);
-      }
-    } finally {
-      setAbrindoPdv(false);
-    }
-  };
-
-  const apagarUltimoPdv = async () => {
-    if (bloqueado || !ultimoPdv) return;
-    if (!window.confirm(`Apagar o PDV "${ultimoPdv.nome_arquivo}" importado para ${formatarData(data)}? As quantidades de vendas lançadas por essa importação serão zeradas.`)) return;
-    setApagandoPdv(true);
-    try {
-      const novosValores = {};
-      for (const item of ITEMS) {
-        await salvarRegistro({ item_id: item.id, data, tipo: "venda", quantidade: 0, registrarAlteracao: false });
-        novosValores[item.id] = 0;
-      }
-      setValores((prev) => ({ ...prev, ...novosValores }));
-      await sb.from("pdv_importacoes").delete().eq("data", data);
-      const { error: erroHistorico } = await sb.from("alteracoes").insert({
-        aba: "Vendas",
-        item_id: null,
-        data,
-        quantidade: null,
-        usuario_nome: usuarioAtualNome || "Usuário",
-        arquivo_nome: `[removido] ${ultimoPdv.nome_arquivo}`,
-      });
-      if (erroHistorico) console.error("Não foi possível registrar no histórico:", erroHistorico);
-      setUltimoPdv(null);
-      setResumoImport(null);
-    } catch (e) {
-      console.error("Não foi possível apagar o PDV:", e);
-    }
-    setApagandoPdv(false);
-  };
-
   return (
     <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 10 }}>
       <DateBar data={data} setData={setData} />
 
       <input ref={fileInputRef} type="file" accept=".xlsx,.xls" onChange={importarArquivo} style={{ display: "none" }} />
-      <div style={{ display: "flex", gap: 8 }}>
-        <button onClick={() => fileInputRef.current.click()} disabled={bloqueado || importando}
-          style={{
-            flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
-            background: bloqueado ? accentSoft : accent, color: bloqueado ? inkSoft : "#fff",
-            border: "none", borderRadius: 10, padding: "11px 0", cursor: bloqueado || importando ? "default" : "pointer",
-            fontFamily: sans, fontWeight: 700, fontSize: 13.5,
-          }}>
-          <Icon name="paperclip" size={15} color={bloqueado ? inkSoft : "#fff"} />
-          {importando ? "Importando..." : "Importar PDV"}
-        </button>
-        {ultimoPdv && (
-          <button onClick={visualizarUltimoPdv} disabled={abrindoPdv}
-            style={{
-              display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
-              background: card, color: accent, border: `1px solid ${line}`, borderRadius: 10,
-              padding: "0 14px", cursor: abrindoPdv ? "default" : "pointer",
-              fontFamily: sans, fontWeight: 700, fontSize: 12.5, whiteSpace: "nowrap",
-            }}>
-            <Icon name="eye" size={15} color={accent} />
-            {abrindoPdv ? "Abrindo..." : "Ver último PDV"}
-          </button>
-        )}
-        {ultimoPdv && !bloqueado && (
-          <button onClick={apagarUltimoPdv} disabled={apagandoPdv} title="Apagar último PDV importado"
-            style={{
-              display: "flex", alignItems: "center", justifyContent: "center",
-              background: card, color: danger, border: `1px solid ${line}`, borderRadius: 10,
-              width: 42, cursor: apagandoPdv ? "default" : "pointer",
-            }}>
-            <Icon name="trash" size={16} color={danger} />
-          </button>
-        )}
-      </div>
-
-      {ultimoPdv && (
-        <div style={{ fontFamily: sans, fontSize: 10.5, color: inkSoft, textAlign: "center" }}>
-          Último arquivo importado: <b style={{ color: ink }}>{ultimoPdv.nome_arquivo}</b> em {formatarDataHora(ultimoPdv.importado_em)}
-        </div>
-      )}
+      <button onClick={() => fileInputRef.current.click()} disabled={bloqueado || importando}
+        style={{
+          display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+          background: bloqueado ? accentSoft : accent, color: bloqueado ? inkSoft : "#fff",
+          border: "none", borderRadius: 10, padding: "11px 0", cursor: bloqueado || importando ? "default" : "pointer",
+          fontFamily: sans, fontWeight: 700, fontSize: 13.5,
+        }}>
+        <Icon name="paperclip" size={15} color={bloqueado ? inkSoft : "#fff"} />
+        {importando ? "Importando..." : "Importar PDV"}
+      </button>
 
       {resumoImport && !importando && (
         <div style={{ fontFamily: sans, fontSize: 11.5, color: resumoImport.ok ? ink : danger, background: resumoImport.ok ? accentSoft : dangerSoft, borderRadius: 8, padding: "8px 10px" }}>
@@ -1125,13 +762,9 @@ function Financeiro({ dataInicial }) {
 
       {carregando && <div style={{ fontFamily: sans, fontSize: 12, color: inkSoft, textAlign: "center" }}>Carregando...</div>}
       {erro && <div style={{ fontFamily: sans, fontSize: 11.5, color: danger, textAlign: "center" }}>Não foi possível conectar ao banco de dados.</div>}
-      {!carregando && (
-        <ListaPorCategoria>
-          {(item) => (
-            <ContadorRow key={item.id} nome={item.nome} valor={valores[item.id]} onChange={(v) => mudar(item.id, v)} iconId={item.id} bloqueado={true} />
-          )}
-        </ListaPorCategoria>
-      )}
+      {!carregando && ITEMS.map((item) => (
+        <ContadorRow key={item.id} nome={item.nome} valor={valores[item.id]} onChange={(v) => mudar(item.id, v)} iconId={item.id} bloqueado={true} />
+      ))}
     </div>
   );
 }
@@ -1153,10 +786,11 @@ function PerdasProtegido({ dataInicial }) {
 }
 
 const ETAPAS_CONFRONTO = [
-  "Coletando estoque final contado às 23h...",
-  "Carregando o estoque congelado das 23:30 de ontem...",
-  "Somando entradas e descontando vendas e perdas...",
-  "Comparando o estoque físico final com o estoque esperado...",
+  "Coletando estoque inicial do dia...",
+  "Coletando entradas de hoje...",
+  "Coletando perdas de hoje...",
+  "Coletando vendas de hoje...",
+  "Comparando estoque atual com o estoque inicial...",
 ];
 
 function nomeDoItem(id) {
@@ -1216,244 +850,175 @@ function UltimoConfronto({ recarregarChave }) {
 const amarelo = "#B8860B";
 const amareloSoft = "#FBF3D9";
 const verdeSoft = "#E7F3E9";
-const azul = "#2563EB";
-const azulSoft = "#E3ECFB";
 
-// =========================
-// CICLO AUTOMÁTICO DIÁRIO
-// 23:30: congela o estoque esperado do dia (fica disponível como "esperado" do
-// próximo dia).
-// 23h: confronta o estoque físico final com o esperado após entradas, vendas e perdas.
-// O resultado fica no Supabase e no Histórico. Às 00:01 o cálculo ao vivo do
-// novo dia recomeça, enquanto o resultado congelado da véspera continua
-// disponível na tela para consulta.
-// =========================
-
-async function lerMapaRegistrosPermitidos(data) {
-  const mapa = Object.fromEntries(ITEMS.map((i) => [i.id, 0]));
-  const [inicial, entradas, perdas, vendas] = await Promise.all([
-    sb.from("registros").select("item_id, quantidade").eq("tipo", "contagem").eq("data", data),
-    sb.from("registros").select("item_id, quantidade").eq("tipo", "entrada").eq("data", data),
-    sb.from("registros").select("item_id, quantidade").eq("tipo", "perda").eq("data", data),
-    sb.from("registros").select("item_id, quantidade").eq("tipo", "venda").eq("data", data),
-  ]);
-  if (inicial.error || entradas.error || perdas.error || vendas.error) throw new Error("Não foi possível ler os registros do dia.");
-  (inicial.data || []).forEach(r => { mapa[r.item_id] += Number(r.quantidade) || 0; });
-  (entradas.data || []).forEach(r => { mapa[r.item_id] += Number(r.quantidade) || 0; });
-  (perdas.data || []).forEach(r => { mapa[r.item_id] -= Number(r.quantidade) || 0; });
-  (vendas.data || []).forEach(r => { mapa[r.item_id] -= Number(r.quantidade) || 0; });
-  return mapa;
-}
-
-function mapaPorItens(rows) {
-  const mapa = Object.fromEntries(ITEMS.map((i) => [i.id, 0]));
-  (rows || []).forEach(r => { mapa[r.item_id] = Number(r.quantidade) || 0; });
-  return mapa;
-}
-
-// O banco é a autoridade do ciclo. Estas funções apenas acionam o fechamento
-// caso o cron ainda não tenha feito o trabalho (fallback para navegador).
 function EstoqueEsperadoDia() {
-  const [carregando, setCarregando] = useState(true);
-  const [resultadoAtual, setResultadoAtual] = useState(null);
-  const [congelado, setCongelado] = useState(null);
-  const [mostrarCongelado, setMostrarCongelado] = useState(false);
-  const [pausado, setPausado] = useState(false);
+  const [carregando, setCarregando] = useState(false);
+  const [resultado, setResultado] = useState(() => {
+    try {
+      const salvo = localStorage.getItem("estoqueEsperadoDia");
+      return salvo ? JSON.parse(salvo) : null;
+    } catch (e) {
+      return null;
+    }
+  });
   const [erro, setErro] = useState(false);
 
-  const buscarUltimoCongelado = async () => {
-    const { data, error } = await sb.from("estoque_fechamentos")
-      .select("*")
-      .not("esperado_congelado_em", "is", null)
-      .order("esperado_congelado_em", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    if (error) throw error;
-    return data || null;
-  };
+  useEffect(() => {
+    calcular();
+    const timer = setInterval(calcular, 2000);
+    return () => clearInterval(timer);
+  }, []);
 
   const calcular = async () => {
+    setCarregando(true);
     setErro(false);
+    const hoje = hojeStr();
     try {
-      const emPausa = passouDas2330() || antesDoResetDiario();
-      setPausado(emPausa);
-
-      if (emPausa) {
-        // O congelamento é responsabilidade exclusiva do Supabase Cron às 23:30.
-        // O navegador apenas consulta o resultado já congelado.
-        setResultadoAtual(null);
-      } else {
-        setResultadoAtual(await lerMapaRegistrosPermitidos(hojeStr()));
+      const [inicialRes, entradasRes, perdasRes, vendasRes] = await Promise.all([
+        sb.from("registros").select("item_id, quantidade").eq("tipo", "contagem").eq("data", hoje),
+        sb.from("registros").select("item_id, quantidade").eq("tipo", "entrada").eq("data", hoje),
+        sb.from("registros").select("item_id, quantidade").eq("tipo", "perda").eq("data", hoje),
+        sb.from("registros").select("item_id, quantidade").eq("tipo", "venda").eq("data", hoje),
+        new Promise((r) => setTimeout(r, 600)),
+      ]);
+      if (inicialRes.error || entradasRes.error || perdasRes.error || vendasRes.error) {
+        throw new Error("erro");
       }
-
-      setCongelado(await buscarUltimoCongelado());
+      const mapa = Object.fromEntries(ITEMS.map((i) => [i.id, 0]));
+      (inicialRes.data || []).forEach((r) => { mapa[r.item_id] += r.quantidade; });
+      (entradasRes.data || []).forEach((r) => { mapa[r.item_id] += r.quantidade; });
+      (perdasRes.data || []).forEach((r) => { mapa[r.item_id] -= r.quantidade; });
+      (vendasRes.data || []).forEach((r) => { mapa[r.item_id] -= r.quantidade; });
+      setResultado(mapa);
+      try {
+        localStorage.setItem("estoqueEsperadoDia", JSON.stringify(mapa));
+      } catch (e) {}
     } catch (e) {
-      console.error(e);
       setErro(true);
+      // Mantém o último cálculo exibido até que uma nova requisição seja concluída com sucesso.
     }
     setCarregando(false);
   };
 
-  useEffect(() => {
-    calcular();
-    const timer = setInterval(calcular, 10000);
-    return () => clearInterval(timer);
-  }, []);
-
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
-      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-        <div style={{
-          display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
-          background: pausado ? inkSoft : accent, color: "#fff", border: "none",
-          borderRadius: 10, padding: "11px 14px", fontFamily: sans, fontWeight: 700, fontSize: 13.5, textAlign: "center",
-        }}>
-          {!pausado && (
-            <span style={{ display: "inline-flex", alignItems: "center", gap: 5, background: "rgba(255,255,255,0.18)", borderRadius: 99, padding: "3px 9px" }}>
-              <span style={{
-                width: 7, height: 7, borderRadius: 99, background: "#FF4D4D",
-                boxShadow: "0 0 0 rgba(255,77,77,0.6)", animation: "pulsoAoVivo 1.4s ease-out infinite"
-              }} />
-              <span style={{ fontSize: 10.5, fontWeight: 800, letterSpacing: 0.5 }}>AO VIVO</span>
-            </span>
-          )}
-          {pausado
-            ? "Aguardando 00:01 para iniciar o cálculo do novo dia"
-            : `Estoque esperado — hoje (${formatarData(hojeStr())}), atualizado em tempo real`}
-        </div>
-
-        {erro && <div style={{ fontFamily: sans, fontSize: 11.5, color: danger, textAlign: "center" }}>
-          Não foi possível carregar o estoque esperado.
-        </div>}
-        {carregando && !resultadoAtual && !pausado && <div style={{ fontFamily: sans, fontSize: 12, color: inkSoft, textAlign: "center" }}>Calculando...</div>}
-
-        {!pausado && resultadoAtual && (
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            <ListaPorCategoria>
-              {(item) => {
-                const v = Number(resultadoAtual[item.id] || 0);
-                const cor = v > 0 ? good : v === 0 ? amarelo : danger;
-                const corBg = v > 0 ? verdeSoft : v === 0 ? amareloSoft : dangerSoft;
-                return <div key={item.id} style={{ background: corBg, border: `1px solid ${line}`, borderRadius: 10, padding: "10px 14px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}><ItemIcon id={item.id} /><span style={{ fontFamily: sans, fontWeight: 600, fontSize: 14, color: ink }}>{item.nome}</span></div>
-                  <span style={{ fontFamily: sans, fontWeight: 800, fontSize: 16, color: cor }}>{v}</span>
-                </div>;
-              }}
-            </ListaPorCategoria>
-
-            <div className="placeholder-congelando">
-              <span className="placeholder-congelando-icone">❄️</span>
-              <span style={{ fontFamily: sans, fontWeight: 800, fontSize: 13, position: "relative", zIndex: 1 }}>
-                Esperando fechamento de estoque para congelar
-              </span>
-            </div>
-          </div>
-        )}
-
-        <div style={{ fontFamily: sans, fontSize: 10.5, color: inkSoft, textAlign: "center", background: "#F7F2EC", borderRadius: 8, padding: "7px 10px" }}>
-          {pausado
-            ? "O resultado de hoje já foi congelado às 23:30. O cálculo do novo dia recomeça às 00:01."
-            : "Calculando continuamente até 23:30, quando o resultado do dia é congelado."}
-        </div>
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      <div style={{
+        display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+        background: accent, color: "#fff", border: "none", borderRadius: 10, padding: "11px 0",
+        fontFamily: sans, fontWeight: 700, fontSize: 13.5,
+        opacity: carregando ? 0.85 : 1,
+      }}>
+        {carregando && <span className="spinner-simple" />}
+        {carregando ? "Calculando..." : `Estoque esperado do dia ${formatarData(amanhaStr())}`}
       </div>
 
-      {congelado && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          <button
-            onClick={() => setMostrarCongelado((v) => !v)}
-            style={{
-              display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 4,
-              background: azul, border: "none", color: "#fff", cursor: "pointer",
-              borderRadius: 10, padding: "11px 14px", fontFamily: sans, fontWeight: 800, fontSize: 13.5, textAlign: "center",
-            }}
-          >
-            <span>🔒 {mostrarCongelado ? "Ocultar" : "Ver"} resultado congelado</span>
-            <span style={{ fontWeight: 700, fontSize: 11, opacity: 0.9 }}>
-              Congelado em {formatarDataHoraCompleta(congelado.esperado_congelado_em)}
-            </span>
-          </button>
+      {erro && (
+        <div style={{ fontFamily: sans, fontSize: 11.5, color: danger, textAlign: "center" }}>
+          Não foi possível calcular o estoque esperado.
+        </div>
+      )}
 
-          {mostrarCongelado && (
-            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              <ListaPorCategoria>
-                {(item) => {
-                  const v = Number((congelado.esperado || {})[item.id] || 0);
-                  return <div key={item.id} style={{ background: azulSoft, border: `1px solid ${azul}`, borderRadius: 10, padding: "10px 14px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}><ItemIcon id={item.id} /><span style={{ fontFamily: sans, fontWeight: 600, fontSize: 14, color: ink }}>{item.nome}</span></div>
-                    <span style={{ fontFamily: sans, fontWeight: 800, fontSize: 16, color: azul }}>{v}</span>
-                  </div>;
-                }}
-              </ListaPorCategoria>
-
-              <div style={{ fontFamily: sans, fontSize: 10.5, color: azul, textAlign: "center", background: azulSoft, borderRadius: 8, padding: "7px 10px" }}>
-                Estes dados ficam disponíveis para consulta e serão usados na fórmula de confronto.
+      {resultado && !carregando && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {ITEMS.map((item) => {
+            const v = resultado[item.id];
+            const cor = v > 0 ? good : v === 0 ? amarelo : danger;
+            const corBg = v > 0 ? verdeSoft : v === 0 ? amareloSoft : dangerSoft;
+            return (
+              <div key={item.id} style={{ background: corBg, border: `1px solid ${line}`, borderRadius: 10, padding: "10px 14px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <ItemIcon id={item.id} />
+                  <span style={{ fontFamily: sans, fontWeight: 600, fontSize: 14, color: ink }}>{item.nome}</span>
+                </div>
+                <span style={{ fontFamily: sans, fontWeight: 800, fontSize: 16, color: cor }}>{v}</span>
               </div>
-            </div>
-          )}
+            );
+          })}
         </div>
       )}
     </div>
   );
 }
+
 function Confronto() {
   const [rodando, setRodando] = useState(false);
   const [progresso, setProgresso] = useState(0);
   const [etapaTexto, setEtapaTexto] = useState("");
   const [msgFinal, setMsgFinal] = useState(null);
   const [recarregarChave, setRecarregarChave] = useState(0);
+  const [pedirSenha, setPedirSenha] = useState(false);
 
   const iniciarConfronto = () => {
     if (rodando) return;
-    confrontarAgora();
+    setPedirSenha(true);
   };
 
-  const confrontarAgora = async () => {
+  const confrontarAgora = () => {
     setMsgFinal(null);
     setRodando(true);
     setProgresso(0);
+    let passo = 0;
+    const proximo = async () => {
+      if (passo >= ETAPAS_CONFRONTO.length) {
+        try {
+          const hoje = hojeStr();
 
-    try {
-      const hora = horaAtualDecimal();
-      if (hora < 23) {
-        throw new Error("O confronto diário só pode ser realizado a partir das 23h.");
+          const [inicialRes, entradasRes, perdasRes, vendasRes] = await Promise.all([
+            sb.from("registros").select("item_id, quantidade").eq("tipo", "contagem").eq("data", hoje),
+            sb.from("registros").select("item_id, quantidade").eq("tipo", "entrada").eq("data", hoje),
+            sb.from("registros").select("item_id, quantidade").eq("tipo", "perda").eq("data", hoje),
+            sb.from("registros").select("item_id, quantidade").eq("tipo", "venda").eq("data", hoje),
+          ]);
+          if (inicialRes.error || entradasRes.error || perdasRes.error || vendasRes.error) {
+            throw new Error("Não foi possível ler os dados do banco.");
+          }
+
+          const estoqueInicial = Object.fromEntries(ITEMS.map((i) => [i.id, 0]));
+          (inicialRes.data || []).forEach((r) => { estoqueInicial[r.item_id] = r.quantidade; });
+
+          const estoqueAtual = Object.fromEntries(ITEMS.map((i) => [i.id, 0]));
+          (entradasRes.data || []).forEach((r) => { estoqueAtual[r.item_id] += r.quantidade; });
+          (perdasRes.data || []).forEach((r) => { estoqueAtual[r.item_id] -= r.quantidade; });
+          (vendasRes.data || []).forEach((r) => { estoqueAtual[r.item_id] -= r.quantidade; });
+
+          const executadoEm = new Date().toISOString();
+          const linhas = ITEMS.map((item) => {
+            const inicial = estoqueInicial[item.id];
+            const atual = estoqueAtual[item.id];
+            const diferenca = atual - inicial;
+            return {
+              data_referencia: hoje,
+              executado_em: executadoEm,
+              item_id: item.id,
+              status: diferenca !== 0 ? "alerta" : "ok",
+              estoque_esperado: inicial,
+              estoque_contado: atual,
+              diferenca,
+            };
+          });
+
+          const { error: erroInsert } = await sb.from("confrontos").insert(linhas);
+          if (erroInsert) throw new Error(erroInsert.message);
+
+          const temInconsistencia = linhas.some((l) => l.status === "alerta");
+          setMsgFinal({
+            ok: true,
+            texto: temInconsistencia ? "Confronto concluído: foram encontradas inconsistências." : "Confronto concluído: tudo bate certinho.",
+          });
+        } catch (e) {
+          setMsgFinal({ ok: false, texto: "Erro: " + (e && e.message ? e.message : String(e)) });
+        }
+        setRodando(false);
+        setRecarregarChave((k) => k + 1);
+        return;
       }
-
-      for (let passo = 0; passo < ETAPAS_CONFRONTO.length; passo++) {
-        setEtapaTexto(ETAPAS_CONFRONTO[passo]);
-        setProgresso(Math.round(((passo + 1) / ETAPAS_CONFRONTO.length) * 100));
-        await new Promise((resolve) => setTimeout(resolve, 450));
-      }
-
-      // O cálculo oficial é executado no Supabase/Edge Function, nunca pelo navegador.
-      const { data: resposta, error: erroFuncao } = await sb.functions.invoke("confronto_diario", {
-        body: {}
-      });
-      if (erroFuncao) throw erroFuncao;
-      if (resposta && resposta.sucesso === false) {
-        throw new Error(resposta.error || "O confronto diário não pôde ser executado.");
-      }
-
-      const hoje = hojeStr();
-      const { data: linhas, error: erroLeitura } = await sb.from("confrontos")
-        .select("*").eq("data_referencia", hoje);
-      if (erroLeitura) throw erroLeitura;
-
-      const temInconsistencia = (linhas || []).some((l) => l.status === "alerta");
-      setMsgFinal({
-        ok: true,
-        texto: temInconsistencia
-          ? "Confronto concluído: foram encontradas inconsistências."
-          : "Confronto concluído: tudo bate certinho.",
-      });
-    } catch (e) {
-      setMsgFinal({ ok: false, texto: "Erro: " + (e && e.message ? e.message : String(e)) });
-    } finally {
-      setRodando(false);
-      setRecarregarChave((k) => k + 1);
-    }
+      setEtapaTexto(ETAPAS_CONFRONTO[passo]);
+      setProgresso(Math.round(((passo + 1) / ETAPAS_CONFRONTO.length) * 100));
+      passo++;
+      setTimeout(proximo, 450);
+    };
+    proximo();
   };
-
-  const podeConfrontar = horaAtualDecimal() >= 23;
 
   return (
     <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 12 }}>
@@ -1464,32 +1029,54 @@ function Confronto() {
       <div className="battle-stage">
         <div className="bolinho-fighter left"><BolinhoFighter mirrored={false} /></div>
         <div className="bolinho-fighter right"><BolinhoFighter mirrored={true} /></div>
-        <button className="confrontar-btn" onClick={iniciarConfronto} disabled={rodando || !podeConfrontar}>
-          ⚔ Confrontar agora
+        <button className="confrontar-btn" onClick={iniciarConfronto} disabled={rodando}>
+          {rodando ? "Analisando..." : "⚔ Confrontar agora"}
         </button>
       </div>
 
-      {rodando && (
-        <div style={{ fontFamily: sans, fontSize: 11.5, color: inkSoft, textAlign: "center" }}>
-          {etapaTexto} ({progresso}%)
+      {pedirSenha && !rodando && (
+        <div style={{
+          position: "fixed", inset: 0, zIndex: 100, background: "rgba(59,42,30,0.35)",
+          display: "flex", alignItems: "center", justifyContent: "center", padding: 20
+        }}>
+          <div style={{
+            width: "min(320px, 100%)", background: card, border: `1px solid ${line}`,
+            borderRadius: 14, boxShadow: "0 16px 40px rgba(59,42,30,0.25)"
+          }}>
+            <SenhaGate
+              titulo="Digite a senha para realizar o confronto"
+              senhaCerta={SENHA_GERAL}
+              onEntrar={() => { setPedirSenha(false); confrontarAgora(); }}
+            />
+            <button onClick={() => setPedirSenha(false)} style={{
+              display: "block", margin: "-4px auto 14px", background: "transparent",
+              border: "none", color: inkSoft, fontFamily: sans, fontSize: 12,
+              cursor: "pointer"
+            }}>Cancelar</button>
+          </div>
         </div>
       )}
 
-      {msgFinal && (
-        <div style={{ fontFamily: sans, fontWeight: 800, fontSize: 12, color: msgFinal.ok ? good : danger, textAlign: "center" }}>
+      {rodando && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <div style={{ fontFamily: sans, fontSize: 12, color: inkSoft, textAlign: "center" }}>{etapaTexto}</div>
+          <div style={{ width: "100%", height: 8, background: accentSoft, borderRadius: 99, overflow: "hidden" }}>
+            <div style={{ width: `${progresso}%`, height: "100%", background: accent, borderRadius: 99, transition: "width 0.5s ease" }} />
+          </div>
+        </div>
+      )}
+
+      {msgFinal && !rodando && (
+        <div style={{ fontFamily: sans, fontWeight: 700, fontSize: 12.5, color: msgFinal.ok ? good : danger, textAlign: "center" }}>
           {msgFinal.texto}
         </div>
       )}
 
-      {!podeConfrontar && (
-        <div style={{ fontFamily: sans, fontSize: 10.5, color: inkSoft, textAlign: "center" }}>
-          O confronto diário será realizado a partir das 23h, após todas as vendas, perdas e entradas do dia.
-        </div>
-      )}
+      <div style={{ fontFamily: sans, fontWeight: 800, fontSize: 13.5, color: ink }}>Último confronto</div>
+      <UltimoConfronto recarregarChave={recarregarChave} />
 
       <div style={{ fontFamily: sans, fontSize: 10.5, color: inkSoft, textAlign: "center" }}>
-        Fórmula: estoque congelado + entradas − vendas − perdas = estoque esperado às 23h.
-        O estoque físico contado às 23h é comparado com esse resultado.
+        Compara o estoque atual (entradas − perdas − vendas de hoje) com o estoque inicial do dia.
       </div>
     </div>
   );
@@ -1534,397 +1121,62 @@ function HistoricoAlteracoes() {
       )}
       {linhas.map((l) => (
         <div key={l.id} style={{ background: card, border: `1px solid ${line}`, borderRadius: 8, padding: "9px 12px", display: "flex", flexDirection: "column", gap: 2 }}>
-          {l.arquivo_nome ? (
-            <>
-              <div style={{ display: "flex", justifyContent: "space-between", fontFamily: sans, fontSize: 12, fontWeight: 700, color: ink }}>
-                <span>{l.aba} · {l.arquivo_nome.startsWith("[removido]") ? "PDV removido" : "Importação de PDV"}</span>
-                <span style={{ color: inkSoft, fontWeight: 600 }}>{formatarDataHora(l.criado_em)}</span>
-              </div>
-              <div style={{ fontFamily: sans, fontSize: 11.5, color: inkSoft }}>
-                Referente a {formatarData(l.data)} — arquivo {l.arquivo_nome.startsWith("[removido]") ? "removido" : "importado"}: <b style={{ color: ink }}>{l.arquivo_nome.replace("[removido] ", "")}</b>
-              </div>
-              <div style={{ fontFamily: sans, fontSize: 10.5, color: inkSoft }}>
-                Alterado por: <b style={{ color: ink }}>{l.usuario_nome || "Registro anterior"}</b>
-              </div>
-            </>
-          ) : (
-            <>
-              <div style={{ display: "flex", justifyContent: "space-between", fontFamily: sans, fontSize: 12, fontWeight: 700, color: ink }}>
-                <span>{l.aba} · {nomeDoItem(l.item_id)}</span>
-                <span style={{ color: inkSoft, fontWeight: 600 }}>{formatarDataHora(l.criado_em)}</span>
-              </div>
-              <div style={{ fontFamily: sans, fontSize: 11.5, color: inkSoft }}>
-                Referente a {formatarData(l.data)} — novo valor: <b style={{ color: ink }}>{l.quantidade}</b>
-              </div>
-              <div style={{ fontFamily: sans, fontSize: 10.5, color: inkSoft }}>
-                Alterado por: <b style={{ color: ink }}>{l.usuario_nome || "Registro anterior"}</b>
-              </div>
-            </>
-          )}
+          <div style={{ display: "flex", justifyContent: "space-between", fontFamily: sans, fontSize: 12, fontWeight: 700, color: ink }}>
+            <span>{l.aba} · {nomeDoItem(l.item_id)}</span>
+            <span style={{ color: inkSoft, fontWeight: 600 }}>{formatarDataHora(l.criado_em)}</span>
+          </div>
+          <div style={{ fontFamily: sans, fontSize: 11.5, color: inkSoft }}>
+            Referente a {formatarData(l.data)} — novo valor: <b style={{ color: ink }}>{l.quantidade}</b>
+          </div>
         </div>
       ))}
     </div>
   );
 }
 
-function CicloAutomaticoGlobal() {
-  // Os ciclos oficiais de 23:30 e 23:00 são executados exclusivamente
-  // pelo Supabase Cron/Edge Function. O navegador não dispara fechamentos.
-  return null;
-}
-
-
-function formatBytesAdmin(bytes) {
-  if (bytes == null || isNaN(bytes)) return "—";
-  const units = ["B", "KB", "MB", "GB", "TB"];
-  let n = Number(bytes), u = 0;
-  while (n >= 1024 && u < units.length - 1) { n /= 1024; u++; }
-  return `${n.toFixed(n >= 100 ? 0 : n >= 10 ? 1 : 2)} ${units[u]}`;
-}
-
-function SupabasePainel() {
-  const [aberto, setAberto] = useState(false);
-  const [dados, setDados] = useState(null);
-  const [carregando, setCarregando] = useState(false);
-  const [limpando, setLimpando] = useState(false);
-  const [msg, setMsg] = useState("");
-
-  const carregarDados = async () => {
-    setCarregando(true);
-    setMsg("");
-    const { data, error } = await sb.rpc("painel_supabase");
-    if (error) { setMsg("Não foi possível carregar o painel. Execute o SQL do painel no Supabase."); setDados(null); }
-    else setDados(data);
-    setCarregando(false);
-  };
-
-  const abrir = () => {
-    setAberto(true);
-    setDados(null);
-    setMsg("");
-    carregarDados();
-  };
-
-  const atualizar = carregarDados;
-
-  const limpar = async () => {
-    if (!window.confirm("Apagar dados operacionais, alterações e histórico com mais de 7 dias? Esta ação não pode ser desfeita.")) return;
-    setLimpando(true);
-    setMsg("");
-    const { data, error } = await sb.rpc("limpar_dados_7_dias");
-    if (error) setMsg("Não foi possível executar a limpeza. Confira o SQL do painel.");
-    else {
-      setMsg(`Limpeza concluída: ${data?.registros_apagados || 0} registros, ${data?.alteracoes_apagadas || 0} alterações e ${data?.historico_apagado || 0} históricos removidos.`);
-      await atualizar();
-    }
-    setLimpando(false);
-  };
-
-  return (
-    <>
-      <div style={{
-        position:"fixed", bottom:8, left:"50%", transform:"translateX(-50%)",
-        display:"flex", alignItems:"center", gap:8, zIndex:50
-      }}>
-        <div style={{
-          fontFamily:sans, fontSize:9.5, color:"rgba(90,52,28,.62)",
-          whiteSpace:"nowrap", pointerEvents:"none"
-        }}>
-          Criado por Fofissimo, analise de inteligência de dados 2026
-        </div>
-        <button onClick={abrir} title="Painel do Supabase" style={{
-          width:42, height:32, borderRadius:"18px 18px 8px 8px",
-          border:`1px solid rgba(107,66,38,.25)`, background:"rgba(255,255,255,.55)",
-          backdropFilter:"blur(7px)", WebkitBackdropFilter:"blur(7px)",
-          color:accent, display:"flex", alignItems:"center", justifyContent:"center",
-          cursor:"pointer", boxShadow:"0 2px 10px rgba(59,42,30,.08)"
-        }}>
-          <Icon name="database" size={18} color={accent} />
-        </button>
-      </div>
-
-      {aberto && (
-        <div style={{position:"fixed",inset:0,zIndex:200,background:"rgba(59,42,30,.38)",display:"flex",alignItems:"center",justifyContent:"center",padding:18}}>
-          <div style={{width:"min(360px,100%)",maxHeight:"88vh",overflowY:"auto",background:card,border:`1px solid ${line}`,borderRadius:18,boxShadow:"0 20px 60px rgba(59,42,30,.28)",padding:18}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
-              <div>
-                <div style={{fontFamily:sansArredondado,fontWeight:800,fontSize:18,color:ink}}>Painel do Supabase</div>
-                <div style={{fontFamily:sans,fontSize:10.5,color:inkSoft}}>Monitoramento e limpeza de dados</div>
-              </div>
-              <button onClick={()=>setAberto(false)} style={{...btnStep,border:"none",background:"transparent"}}>×</button>
-            </div>
-
-            {carregando && <div style={{fontFamily:sans,fontSize:12,color:inkSoft,textAlign:"center",padding:12}}>Consultando Supabase...</div>}
-            {!carregando && dados && (
-              <div style={{display:"flex",flexDirection:"column",gap:8}}>
-                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-                  <div style={{padding:10,border:`1px solid ${line}`,borderRadius:10}}>
-                    <div style={{fontSize:10,color:inkSoft}}>Banco</div><b style={{fontSize:16,color:ink}}>{formatBytesAdmin(dados.database_bytes)}</b>
-                  </div>
-                  <div style={{padding:10,border:`1px solid ${line}`,borderRadius:10}}>
-                    <div style={{fontSize:10,color:inkSoft}}>Registros</div><b style={{fontSize:16,color:ink}}>{dados.registros_count ?? "—"}</b>
-                  </div>
-                  <div style={{padding:10,border:`1px solid ${line}`,borderRadius:10}}>
-                    <div style={{fontSize:10,color:inkSoft}}>Alterações</div><b style={{fontSize:16,color:ink}}>{dados.alteracoes_count ?? "—"}</b>
-                  </div>
-                  <div style={{padding:10,border:`1px solid ${line}`,borderRadius:10}}>
-                    <div style={{fontSize:10,color:inkSoft}}>Histórico</div><b style={{fontSize:16,color:ink}}>{dados.historico_count ?? "—"}</b>
-                  </div>
-                </div>
-                <div style={{padding:10,border:`1px solid ${line}`,borderRadius:10,fontSize:11,color:inkSoft}}>
-                  <b style={{color:ink}}>Fotos antigas:</b> as fotos do sistema ficam armazenadas dentro dos registros como dados de imagem; a limpeza de registros com mais de 7 dias também remove essas fotos do banco.
-                </div>
-                <button onClick={atualizar} disabled={carregando} style={{padding:"10px",border:`1px solid ${line}`,borderRadius:9,background:card,color:accent,fontWeight:800}}>↻ Atualizar</button>
-                <button onClick={limpar} disabled={limpando} style={{padding:"10px",border:"none",borderRadius:9,background:danger,color:"#fff",fontWeight:800}}>
-                  {limpando ? "Limpando..." : "Apagar dados com mais de 7 dias"}
-                </button>
-              </div>
-            )}
-            {!carregando && !dados && (
-              <div style={{display:"flex",flexDirection:"column",gap:8}}>
-                <div style={{fontFamily:sans,fontSize:12,color:inkSoft,textAlign:"center",padding:"6px 0"}}>Não foi possível carregar os dados do painel.</div>
-                <button onClick={atualizar} style={{padding:"10px",border:`1px solid ${line}`,borderRadius:9,background:card,color:accent,fontWeight:800}}>↻ Tentar novamente</button>
-              </div>
-            )}
-            {!carregando && msg && <div style={{fontFamily:sans,fontSize:11,color:msg.startsWith("Limpeza")?good:danger,textAlign:"center",marginTop:8}}>{msg}</div>}
-          </div>
-        </div>
-      )}
-    </>
-  );
-}
-
-
-async function carregarPerfilAtual(session) {
-  if (!session?.user?.id) return null;
-  const { data, error } = await sb
-    .from("perfis")
-    .select("id, usuario, nome, permissoes")
-    .eq("id", session.user.id)
-    .single();
-
-  if (error || !data) return null;
-  const nomeAtual = data.nome || data.usuario;
-  usuarioAtualNome = nomeAtual;
-
-  return {
-    id: data.id,
-    nome: nomeAtual,
-    usuario: data.usuario,
-    permissoes: Array.isArray(data.permissoes) ? data.permissoes : []
-  };
-}
-
-async function autenticarPorUsuario(usuario, senha) {
-  const nomeUsuario = usuario.trim();
-  if (!nomeUsuario || !senha) throw new Error("Informe usuário e senha.");
-
-  // O nome de usuário é convertido para o e-mail do Auth por uma função SQL.
-  // A senha nunca é consultada nem armazenada pelo JavaScript.
-  const { data: email, error: erroEmail } = await sb
-    .rpc("obter_email_login", { p_usuario: nomeUsuario });
-
-  if (erroEmail || !email) throw new Error("Usuário ou senha incorretos.");
-
-  const { data, error } = await sb.auth.signInWithPassword({
-    email,
-    password: senha
-  });
-
-  if (error || !data?.session) throw new Error("Usuário ou senha incorretos.");
-
-  const perfil = await carregarPerfilAtual(data.session);
-  if (!perfil) {
-    await sb.auth.signOut();
-    throw new Error("Usuário autenticado, mas sem perfil de acesso configurado.");
-  }
-  return perfil;
-}
-
-function Login({ onLogin }) {
-  const [usuario, setUsuario] = useState("");
-  const [senha, setSenha] = useState("");
-  const [mostrarSenha, setMostrarSenha] = useState(false);
-  const [erro, setErro] = useState("");
-  const [entrando, setEntrando] = useState(false);
-
-  const entrar = async () => {
-    if (entrando) return;
-    setErro("");
-    setEntrando(true);
-    try {
-      const perfil = await autenticarPorUsuario(usuario, senha);
-      onLogin(perfil);
-    } catch (e) {
-      setErro(e?.message || "Usuário ou senha incorretos.");
-    } finally {
-      setEntrando(false);
-    }
-  };
-
-  return (
-    <div style={{minHeight:"100vh",background:bgStripes,display:"flex",alignItems:"center",justifyContent:"center",padding:20,boxSizing:"border-box",fontFamily:sans}}>
-      <div style={{width:"min(360px,100%)",background:card,border:`1px solid ${line}`,borderRadius:20,boxShadow:"0 16px 40px rgba(59,42,30,0.18)",padding:22,boxSizing:"border-box"}}>
-        <div style={{fontFamily:sansArredondado,fontWeight:800,fontSize:22,color:ink,textAlign:"center",marginBottom:4}}>Estoque Fofíssimo</div>
-        <div style={{fontFamily:sans,fontSize:11,color:inkSoft,textAlign:"center",marginBottom:20}}>Entre com seu usuário para acessar o sistema</div>
-        <label style={{display:"block",fontFamily:sans,fontSize:11.5,fontWeight:700,color:ink,marginBottom:5}}>Usuário</label>
-        <input value={usuario} onChange={e=>{setUsuario(e.target.value);setErro("");}} onKeyDown={e=>{if(e.key==="Enter")entrar();}} autoComplete="username"
-          style={{width:"100%",boxSizing:"border-box",padding:"11px 12px",border:`1px solid ${line}`,borderRadius:9,fontFamily:sans,fontSize:14,marginBottom:11}} />
-        <label style={{display:"block",fontFamily:sans,fontSize:11.5,fontWeight:700,color:ink,marginBottom:5}}>Senha</label>
-        <div style={{position:"relative",width:"100%",marginBottom:11}}>
-          <input type={mostrarSenha ? "text" : "password"} value={senha}
-            onChange={e=>{setSenha(e.target.value);setErro("");}}
-            onKeyDown={e=>{if(e.key==="Enter")entrar();}}
-            autoComplete="current-password"
-            style={{width:"100%",boxSizing:"border-box",padding:"11px 42px 11px 12px",border:`1px solid ${line}`,borderRadius:9,fontFamily:sans,fontSize:14}} />
-          <button
-            type="button"
-            onClick={()=>setMostrarSenha(v=>!v)}
-            aria-label={mostrarSenha ? "Ocultar senha" : "Mostrar senha"}
-            title={mostrarSenha ? "Ocultar senha" : "Mostrar senha"}
-            style={{position:"absolute",right:8,top:"50%",transform:"translateY(-50%)",width:30,height:30,border:"none",background:"transparent",color:inkSoft,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",padding:0}}
-          >
-            <Icon name="eye" size={18} color={inkSoft} />
-          </button>
-        </div>
-        {erro && <div style={{fontFamily:sans,fontSize:11.5,color:danger,textAlign:"center",marginBottom:10}}>{erro}</div>}
-        <button onClick={entrar} disabled={entrando} style={{width:"100%",padding:"11px",border:"none",borderRadius:9,background:entrando?accentSoft:accent,color:entrando?inkSoft:"#fff",fontFamily:sans,fontWeight:800,cursor:entrando?"default":"pointer"}}>
-          {entrando ? "Entrando..." : "Entrar"}
-        </button>
-      </div>
-    </div>
-  );
-}
-
-function InstrucoesInicio({ permissoes }) {
-  const instrucoes = {
-    estoque: ["Estoque inicial do dia", <>Quantidade disponível de cada item no início da operação <b>(deve ser digitada manualmente todos os dias)</b>.</>],
-    entradas: ["Entradas", <>Quantidade de cada item que chegou no estoque naquele dia <b>(deve ser digitada manualmente nos dias que chegarem itens no estoque)</b>.<div style={{marginTop:6,fontWeight:800,color:danger}}>É NECESSÁRIO ANEXO DE COMPROVANTE PARA CONFIRMAR ENTRADAS.</div></>],
-    perdas: ["Perdas", <>Todos os itens do estoque que estragarem, sumirem ou não estiverem em condições de uso e forem descartados devem ser adicionados manualmente aqui.</>],
-    financeiro: ["Vendas", <>As vendas do dia só podem ser importadas diretamente do PDV, <b>não podendo ser digitadas manualmente</b>.</>],
-    historico: ["Histórico", <>Consulte as alterações registradas no sistema para acompanhar os lançamentos realizados.</>]
-  };
-  const ids = ["estoque","entradas","perdas","financeiro","historico"].filter(id=>permissoes.includes(id));
-
-  return (
-    <div style={{flex:1,minHeight:0,overflowY:"auto",padding:"18px 16px 22px",boxSizing:"border-box"}}>
-      <div style={{fontFamily:sansArredondado,fontWeight:800,fontSize:18,color:ink,marginBottom:14,textAlign:"center"}}>Como utilizar o sistema</div>
-      <div style={{display:"flex",flexDirection:"column",gap:10}}>
-        {ids.map(id => <div key={id} style={{background:id==="estoque"?accentSoft:"#F7F2EC",border:`1px solid ${line}`,borderRadius:12,padding:"12px 13px"}}>
-          <div style={{fontFamily:sansArredondado,fontWeight:800,fontSize:13.5,color:accent,marginBottom:5}}>{instrucoes[id][0]}</div>
-          <div style={{fontFamily:sans,fontSize:11.5,lineHeight:1.45,color:ink}}>{instrucoes[id][1]}</div>
-        </div>)}
-      </div>
-    </div>
-  );
-}
-
 function App() {
-  const [usuario, setUsuario] = useState(null);
-  const [tab, setTab] = useState(null);
-  const [carregandoSessao, setCarregandoSessao] = useState(true);
-  const [boasVindas, setBoasVindas] = useState(false);
-
-  useEffect(() => {
-    if (!boasVindas) return;
-    const t = setTimeout(() => setBoasVindas(false), 3500);
-    return () => clearTimeout(t);
-  }, [boasVindas]);
-
-  useEffect(() => {
-    let ativo = true;
-
-    sb.auth.getSession().then(async ({ data }) => {
-      if (!ativo) return;
-      if (data?.session) {
-        const perfil = await carregarPerfilAtual(data.session);
-        if (ativo && perfil) setUsuario(perfil);
-      }
-      if (ativo) setCarregandoSessao(false);
-    });
-
-    const { data: listener } = sb.auth.onAuthStateChange(async (_event, session) => {
-      if (!ativo) return;
-      if (!session) {
-        setUsuario(null);
-        setTab(null);
-        return;
-      }
-      const perfil = await carregarPerfilAtual(session);
-      if (ativo) setUsuario(perfil);
-    });
-
-    return () => {
-      ativo = false;
-      listener?.subscription?.unsubscribe();
-    };
-  }, []);
-
-  if (carregandoSessao) {
-    return (
-      <div style={{minHeight:"100vh",background:bgStripes,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:sans,color:inkSoft}}>
-        Carregando...
-      </div>
-    );
-  }
-
-  if (!usuario) return <Login onLogin={dados => { setUsuario(dados); setTab(null); setBoasVindas(true); }} />;
-
-  const tabsPermitidas = TABS.filter(t => usuario.permissoes.includes(t.id));
-
-  const sair = async () => {
-    await sb.auth.signOut();
-    usuarioAtualNome = "";
-    setUsuario(null);
-    setTab(null);
-  };
+  const [tab, setTab] = useState("estoque");
 
   return (
-    <>
-      <CicloAutomaticoGlobal />
-      <SupabasePainel />
-      {boasVindas && (
-        <div style={{position:"fixed",top:18,left:"50%",transform:"translateX(-50%)",zIndex:9999,background:"linear-gradient(135deg,#5A341C,#7A4A22)",color:"#fff",padding:"12px 22px",borderRadius:12,boxShadow:"0 10px 26px rgba(59,42,30,0.35)",fontFamily:sansArredondado,fontWeight:800,fontSize:14,textAlign:"center"}}>
-          Bem-vindo(a), {usuario.nome}!
-        </div>
-      )}
-      <div style={{minHeight:"100vh",background:bgStripes,display:"flex",flexDirection:"column",alignItems:"center",padding:"24px 0",fontFamily:sans}}>
-        <div style={{width:390,maxWidth:"100%",background:card,borderRadius:20,border:`1px solid ${line}`,boxShadow:"0 16px 40px rgba(59,42,30,0.18)",overflow:"hidden",display:"flex",flexDirection:"column",height:720,flexShrink:0}}>
-          <div style={{flex:1,display:"flex",overflow:"hidden"}}>
-            <div style={{width:96,flexShrink:0,background:accentSoft,padding:"14px 8px",display:"flex",flexDirection:"column",gap:10,overflowY:"auto"}}>
-              {tabsPermitidas.map(t => <button key={t.id} onClick={()=>setTab(t.id)} style={{border:tab===t.id?"1px solid #5A341C":`1.5px solid ${line}`,borderRadius:14,padding:"12px 4px",cursor:"pointer",aspectRatio:"1 / 1",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:5,background:tab===t.id?"linear-gradient(135deg,#5A341C,#7A4A22)":card,color:tab===t.id?"#fff":accent,boxShadow:tab===t.id?"0 4px 10px rgba(90,52,28,0.45)":"0 1px 3px rgba(59,42,30,0.08)"}}>
-                <Icon name={t.icone} size={18} color={tab===t.id?"#fff":accent} />
-                <span style={{fontFamily:sansArredondado,fontWeight:800,fontSize:13.5,lineHeight:1.2,textAlign:"center"}}>{t.label}</span>
-              </button>)}
+    <div style={{ minHeight: "100vh", background: bgStripes, display: "flex", flexDirection: "column", alignItems: "center", padding: "24px 0", fontFamily: sans }}>
+      <div style={{ width: 390, maxWidth: "100%", background: card, borderRadius: 20, border: `1px solid ${line}`, boxShadow: "0 16px 40px rgba(59,42,30,0.18)", overflow: "hidden", display: "flex", flexDirection: "column", height: 720, flexShrink: 0 }}>
+        <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
+          <div style={{ width: 96, flexShrink: 0, background: accentSoft, padding: "14px 8px", display: "flex", flexDirection: "column", gap: 10, overflowY: "auto" }}>
+            {TABS.map((t) => (
+              <button key={t.id} onClick={() => setTab(t.id)} style={{
+                border: tab === t.id ? "1px solid #5A341C" : `1.5px solid ${line}`,
+                borderRadius: 14, padding: "12px 4px", cursor: "pointer",
+                aspectRatio: "1 / 1",
+                display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 5,
+                background: tab === t.id ? "linear-gradient(135deg, #5A341C, #7A4A22)" : card,
+                color: tab === t.id ? "#fff" : accent,
+                boxShadow: tab === t.id ? "0 4px 10px rgba(90,52,28,0.45)" : "0 1px 3px rgba(59,42,30,0.08)",
+                transition: "background 0.2s ease, box-shadow 0.2s ease, border 0.2s ease",
+              }}>
+                <Icon name={t.icone} size={18} color={tab === t.id ? "#fff" : accent} />
+                <span style={{ fontFamily: sansArredondado, fontWeight: 800, fontSize: 13.5, lineHeight: 1.2, textAlign: "center" }}>{t.label}</span>
+              </button>
+            ))}
+          </div>
+
+          <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+            <div style={{ padding: "16px 16px 10px 20px" }}>
+              <div style={{ fontFamily: sansArredondado, fontWeight: 800, fontSize: 18, color: ink, marginBottom: 2 }}>Fofíssimo Controle</div>
+              <div style={{ fontFamily: sans, fontSize: 10.5, color: inkSoft }}>Dados salvos na nuvem — compartilhado entre todos</div>
             </div>
-            <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}>
-              <div style={{padding:"16px 16px 10px 20px"}}>
-                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8}}>
-                  <div>
-                    <div style={{fontFamily:sansArredondado,fontWeight:800,fontSize:18,color:ink,marginBottom:2}}>Estoque Fofíssimo</div>
-                    <div style={{fontFamily:sans,fontSize:10.5,color:inkSoft}}>Usuário: <b>{usuario.nome}</b></div>
-                  </div>
-                  <button onClick={sair} style={{border:`1px solid ${line}`,borderRadius:8,background:card,color:accent,padding:"6px 8px",fontFamily:sans,fontSize:10.5,fontWeight:800,cursor:"pointer"}}>Sair</button>
-                </div>
-              </div>
-              <div key={tab||"inicio"} className={tab?"tab-fan-enter":""} style={{flex:1,overflowY:"auto",display:"flex",flexDirection:"column"}}>
-                {!tab && <InstrucoesInicio permissoes={usuario.permissoes} />}
-                {tab==="estoque" && <Estoque dataInicial={hojeStr()} />}
-                {tab==="entradas" && <EntradasProtegido dataInicial={hojeStr()} />}
-                {tab==="perdas" && <PerdasProtegido dataInicial={hojeStr()} />}
-                {tab==="financeiro" && <Financeiro dataInicial={hojeStr()} />}
-                {tab==="confronto" && <Confronto />}
-                {tab==="historico" && <HistoricoAlteracoes />}
-              </div>
+
+            <div key={tab} className="tab-fan-enter" style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column" }}>
+              {tab === "estoque" && <Estoque dataInicial={hojeStr()} />}
+              {tab === "entradas" && <EntradasProtegido dataInicial={hojeStr()} />}
+              {tab === "perdas" && <PerdasProtegido dataInicial={hojeStr()} />}
+              {tab === "financeiro" && <Financeiro dataInicial={hojeStr()} />}
+              {tab === "confronto" && <Confronto />}
+              {tab === "historico" && <HistoricoAlteracoes />}
             </div>
           </div>
         </div>
-        <a href="fofinator.html" aria-label="Abrir Fofinator" style={{marginTop:10,textDecoration:"none",display:"inline-flex",alignItems:"center",gap:6,fontFamily:sansArredondado,fontWeight:800,fontSize:11.5,color:inkSoft,opacity:.72,padding:"5px 10px",borderRadius:12,transition:"opacity .2s, transform .2s"}} onMouseEnter={e=>{e.currentTarget.style.opacity="1";e.currentTarget.style.transform="translateY(-1px)"}} onMouseLeave={e=>{e.currentTarget.style.opacity=".72";e.currentTarget.style.transform="translateY(0)"}}>
-          <span style={{fontSize:15,lineHeight:1}}>🔮</span>
-          <span>Fofinator</span>
-        </a>
       </div>
-    </>
+    </div>
   );
 }
 
