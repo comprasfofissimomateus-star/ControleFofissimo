@@ -444,7 +444,12 @@ async function salvarRegistro({ item_id, data, tipo, quantidade, foto_url, nome_
   }
 
   if (error) {
-    console.error("Erro ao salvar registro:", error);
+    console.error("Erro ao salvar registro:", {
+      message: error.message,
+      details: error.details,
+      hint: error.hint,
+      code: error.code,
+    });
     return false;
   }
   return true;
@@ -776,14 +781,14 @@ function EntradaRow({ nome, dados, onChangeQtd, onAnexar, onRemoverAnexo, iconId
     reader.onload = () => {
       const img = new Image();
       img.onload = () => {
-        const max = 1400;
+        const max = 900;
         const escala = Math.min(1, max / Math.max(img.width, img.height));
         const canvas = document.createElement("canvas");
         canvas.width = Math.max(1, Math.round(img.width * escala));
         canvas.height = Math.max(1, Math.round(img.height * escala));
         const ctx = canvas.getContext("2d");
         ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-        resolve(canvas.toDataURL("image/jpeg", 0.78));
+        resolve(canvas.toDataURL("image/jpeg", 0.58));
       };
       img.onerror = reject;
       img.src = reader.result;
@@ -857,7 +862,6 @@ function EntradaRow({ nome, dados, onChangeQtd, onAnexar, onRemoverAnexo, iconId
         <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0, width: "100%" }}>
           <img src={dados.foto} alt="Comprovante" style={{ flex: "0 0 44px", width: 44, height: 44, objectFit: "cover", borderRadius: 6, border: `1px solid ${line}` }} />
           <button onClick={baixarAnexo} title="Baixar comprovante" style={{ ...btnStep, flex: "0 0 auto" }}>⬇</button>
-          <span title={dados.nomeArquivo || "Comprovante"} style={{ fontFamily: sans, fontSize: 12, color: inkSoft, minWidth: 0, flex: "1 1 auto", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{dados.nomeArquivo}</span>
           {!bloqueado && (
             <button onClick={onRemoverAnexo} title="Excluir comprovante" style={{ ...btnStep, flex: "0 0 auto", color: danger, borderColor: danger }}>
               <Icon name="trash" size={13} />
