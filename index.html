@@ -538,13 +538,10 @@ function EntradaRow({ nome, dados, onChangeQtd, onAnexar, onRemoverAnexo, iconId
           <span style={{ fontFamily: sans, fontWeight: 600, fontSize: 14.5, color: ink }}>{nome}</span>
         </div>
         {liberado && (
-          <div style={{ position: "relative", display: "flex", alignItems: "center", gap: 10 }}>
-            <SparkleBurst triggerKey={burst} />
-            <button onClick={() => mudarQtd(Math.max(0, dados.qtd - 1))} disabled={bloqueado} style={{ ...btnStep, cursor: bloqueado ? "default" : "pointer" }}><Icon name="minus" size={14} /></button>
+          <div style={{ display: "flex", alignItems: "center" }}>
             <input type="number" value={dados.qtd} readOnly={bloqueado} disabled={bloqueado}
               onChange={(e) => mudarQtd(Math.max(0, parseInt(e.target.value || "0", 10)))}
               style={{ width: 48, textAlign: "center", fontFamily: sans, fontWeight: 700, fontSize: 15, border: `1px solid ${line}`, borderRadius: 6, padding: "5px 2px", color: ink }} />
-            <button onClick={() => mudarQtd(dados.qtd + 1)} disabled={bloqueado} style={{ ...btnStep, cursor: bloqueado ? "default" : "pointer" }}><Icon name="plus" size={14} /></button>
           </div>
         )}
       </div>
