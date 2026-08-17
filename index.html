@@ -949,7 +949,7 @@ function Financeiro({ dataInicial }) {
       }, { onConflict: "data" });
 
       // Uma única linha no Histórico, em vez de uma por produto (evita flood)
-      await sb.from("alteracoes").insert({
+      const { error: erroHistorico } = await sb.from("alteracoes").insert({
         aba: "Vendas",
         item_id: null,
         data,
@@ -957,6 +957,7 @@ function Financeiro({ dataInicial }) {
         usuario_nome: usuarioAtualNome || "Usuário",
         arquivo_nome: file.name,
       });
+      if (erroHistorico) console.error("Não foi possível registrar no histórico:", erroHistorico);
 
       await buscarUltimoPdv(data);
       setResumoImport({ ok: true, encontrados, naoEncontrados });
@@ -991,7 +992,7 @@ function Financeiro({ dataInicial }) {
       }
       setValores((prev) => ({ ...prev, ...novosValores }));
       await sb.from("pdv_importacoes").delete().eq("data", data);
-      await sb.from("alteracoes").insert({
+      const { error: erroHistorico } = await sb.from("alteracoes").insert({
         aba: "Vendas",
         item_id: null,
         data,
@@ -999,6 +1000,7 @@ function Financeiro({ dataInicial }) {
         usuario_nome: usuarioAtualNome || "Usuário",
         arquivo_nome: `[removido] ${ultimoPdv.nome_arquivo}`,
       });
+      if (erroHistorico) console.error("Não foi possível registrar no histórico:", erroHistorico);
       setUltimoPdv(null);
       setResumoImport(null);
     } catch (e) {
