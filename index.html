@@ -148,6 +148,15 @@ const SUPABASE_URL = "https://ktdqcgyththfdoxapxzu.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable_IVhzXI1s-idhKn_6LI8nPQ_307mZA5E";
 const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
+const USUARIO_STORAGE_KEY = "fofissimo_usuario_nome";
+function obterUsuarioNome() {
+  try { return (localStorage.getItem(USUARIO_STORAGE_KEY) || "").trim(); }
+  catch (_) { return ""; }
+}
+function salvarUsuarioNome(nome) {
+  try { localStorage.setItem(USUARIO_STORAGE_KEY, (nome || "").trim()); } catch (_) {}
+}
+
 function hojeStr() {
   const d = new Date();
   return d.toISOString().slice(0, 10);
@@ -308,6 +317,7 @@ async function salvarRegistro({ item_id, data, tipo, quantidade, foto_url, nome_
       item_id,
       data,
       quantidade,
+      usuario_nome: obterUsuarioNome() || "Não informado",
     });
   }
   return !error;
@@ -319,6 +329,7 @@ function Icon({ name, size = 16, color = "currentColor" }) {
     minus: "M5 12h14",
     paperclip: "M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48",
     trash: "M3 6h18 M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2 M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6",
+    download: "M12 3v12 M7 10l5 5 5-5 M5 21h14",
   };
   if (name === "lock") {
     return (
@@ -549,8 +560,11 @@ function EntradaRow({ nome, dados, onChangeQtd, onAnexar, onRemoverAnexo, iconId
         <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0, width: "100%" }}>
           <img src={dados.foto} alt="Comprovante" style={{ width: 44, height: 44, objectFit: "cover", borderRadius: 6, border: `1px solid ${line}` }} />
           <span title={dados.nomeArquivo} style={{ fontFamily: sans, fontSize: 12, color: inkSoft, flex: 1, minWidth: 0, maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{dados.nomeArquivo}</span>
+          <a href={dados.foto} download={dados.nomeArquivo || "comprovante-entrada"} title="Baixar comprovante" style={{ ...btnStep, display: "inline-flex", alignItems: "center", justifyContent: "center", textDecoration: "none", color: accent, flexShrink: 0 }}>
+            <Icon name="download" size={13} />
+          </a>
           {!bloqueado && (
-            <button onClick={onRemoverAnexo} style={{ ...btnStep, color: danger, borderColor: danger }}><Icon name="trash" size={13} /></button>
+            <button onClick={onRemoverAnexo} title="Remover comprovante" style={{ ...btnStep, color: danger, borderColor: danger, flexShrink: 0 }}><Icon name="trash" size={13} /></button>
           )}
         </div>
       ) : (
@@ -1125,6 +1139,9 @@ function HistoricoAlteracoes() {
           <div style={{ fontFamily: sans, fontSize: 11.5, color: inkSoft }}>
             Referente a {formatarData(l.data)} — novo valor: <b style={{ color: ink }}>{l.quantidade}</b>
           </div>
+          <div style={{ fontFamily: sans, fontSize: 11.5, color: inkSoft }}>
+            Usuário: <b style={{ color: ink }}>{l.usuario_nome || "Não informado"}</b>
+          </div>
         </div>
       ))}
     </div>
@@ -1133,6 +1150,12 @@ function HistoricoAlteracoes() {
 
 function App() {
   const [tab, setTab] = useState("estoque");
+  const [usuarioNome, setUsuarioNome] = useState(() => obterUsuarioNome());
+
+  const mudarUsuario = (valor) => {
+    setUsuarioNome(valor);
+    salvarUsuarioNome(valor);
+  };
 
   return (
     <div style={{ minHeight: "100vh", background: bgStripes, display: "flex", flexDirection: "column", alignItems: "center", padding: "24px 0", fontFamily: sans }}>
@@ -1159,7 +1182,17 @@ function App() {
           <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
             <div style={{ padding: "16px 16px 10px 20px" }}>
               <div style={{ fontFamily: sansArredondado, fontWeight: 800, fontSize: 18, color: ink, marginBottom: 2 }}>Fofíssimo Controle</div>
-              <div style={{ fontFamily: sans, fontSize: 10.5, color: inkSoft }}>Dados salvos na nuvem — compartilhado entre todos</div>
+              <div style={{ display: "flex", alignItems: "center", gap: 7, marginTop: 5 }}>
+                <span style={{ fontFamily: sans, fontSize: 10.5, color: inkSoft, flexShrink: 0 }}>Usuário:</span>
+                <input
+                  value={usuarioNome}
+                  onChange={(e) => mudarUsuario(e.target.value)}
+                  placeholder="Digite seu nome"
+                  aria-label="Nome do usuário"
+                  style={{ minWidth: 0, flex: 1, border: `1px solid ${line}`, borderRadius: 7, padding: "5px 7px", fontFamily: sans, fontSize: 11, color: ink, background: bg }}
+                />
+              </div>
+              <div style={{ fontFamily: sans, fontSize: 10, color: inkSoft, marginTop: 3 }}>Alterações ficam salvas com o nome informado.</div>
             </div>
 
             <div key={tab} className="tab-fan-enter" style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column" }}>
