@@ -256,6 +256,31 @@ async function lerArquivoPlanilha(file) {
   return XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" });
 }
 
+function lerArquivoComoDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+function abrirDataUrlEmNovaAba(dataUrl, nomeArquivo) {
+  try {
+    const [cabecalho, base64] = dataUrl.split(",");
+    const mime = (cabecalho.match(/data:(.*);base64/) || [])[1] || "application/octet-stream";
+    const bin = atob(base64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    const blob = new Blob([bytes], { type: mime });
+    const url = URL.createObjectURL(blob);
+    window.open(url, "_blank");
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+  } catch (e) {
+    console.error("Não foi possível abrir o arquivo:", e);
+  }
+}
+
 // Procura, nas primeiras linhas, a linha de cabeçalho com as colunas "produto" e "numvendas"
 function encontrarColunasPDV(linhas) {
   for (let i = 0; i < Math.min(linhas.length, 6); i++) {
@@ -359,7 +384,7 @@ async function buscarRegistros(tipo, data) {
   return { base, error: false };
 }
 
-async function salvarRegistro({ item_id, data, tipo, quantidade, foto_url, nome_arquivo }) {
+async function salvarRegistro({ item_id, data, tipo, quantidade, foto_url, nome_arquivo, registrarAlteracao = true }) {
   const payload = { item_id, data, tipo, quantidade };
   if (foto_url !== undefined) payload.foto_url = foto_url;
   if (nome_arquivo !== undefined) payload.nome_arquivo = nome_arquivo;
@@ -368,7 +393,7 @@ async function salvarRegistro({ item_id, data, tipo, quantidade, foto_url, nome_
     .from("registros")
     .upsert(payload, { onConflict: "item_id,data,tipo" });
 
-  if (!error) {
+  if (!error && registrarAlteracao) {
     await sb.from("alteracoes").insert({
       aba: abaDoTipo(tipo),
       item_id,
@@ -865,6 +890,17 @@ function Financeiro({ dataInicial }) {
   const fileInputRef = useRef(null);
   const [importando, setImportando] = useState(false);
   const [resumoImport, setResumoImport] = useState(null);
+  const [ultimoPdv, setUltimoPdv] = useState(null);
+  const [abrindoPdv, setAbrindoPdv] = useState(false);
+  const [apagandoPdv, setApagandoPdv] = useState(false);
+
+  const buscarUltimoPdv = async (dataAlvo) => {
+    const { data: linha, error } = await sb.from("pdv_importacoes")
+      .select("nome_arquivo, importado_em").eq("data", dataAlvo).maybeSingle();
+    if (!error) setUltimoPdv(linha || null);
+  };
+
+  useEffect(() => { buscarUltimoPdv(data); }, [data]);
 
   const mudar = async (id, v) => {
     if (bloqueado) return;
@@ -879,22 +915,50 @@ function Financeiro({ dataInicial }) {
     setImportando(true);
     setResumoImport(null);
     try {
-      const linhas = await lerArquivoPlanilha(file);
+      const [linhas, arquivoDataUrl] = await Promise.all([
+        lerArquivoPlanilha(file),
+        lerArquivoComoDataUrl(file),
+      ]);
       const resultado = processarPlanilhaPDV(linhas);
+      const novosValores = {};
       // Zera todos os produtos antes de aplicar o novo arquivo importado
       for (const item of ITEMS) {
-        await mudar(item.id, 0);
+        await salvarRegistro({ item_id: item.id, data, tipo: "venda", quantidade: 0, registrarAlteracao: false });
+        novosValores[item.id] = 0;
       }
       const encontrados = [];
       const naoEncontrados = [];
       for (const item of ITEMS) {
         if (resultado[item.id] !== null) {
-          await mudar(item.id, resultado[item.id]);
+          await salvarRegistro({ item_id: item.id, data, tipo: "venda", quantidade: resultado[item.id], registrarAlteracao: false });
+          novosValores[item.id] = resultado[item.id];
           encontrados.push(`${item.nome}: ${resultado[item.id]}`);
         } else {
           naoEncontrados.push(item.nome);
         }
       }
+      setValores((prev) => ({ ...prev, ...novosValores }));
+
+      // Guarda o arquivo importado para consulta posterior (1 por dia — a última importação substitui a anterior)
+      await sb.from("pdv_importacoes").upsert({
+        data,
+        nome_arquivo: file.name,
+        arquivo_base64: arquivoDataUrl,
+        importado_em: new Date().toISOString(),
+        usuario_nome: usuarioAtualNome || "Usuário",
+      }, { onConflict: "data" });
+
+      // Uma única linha no Histórico, em vez de uma por produto (evita flood)
+      await sb.from("alteracoes").insert({
+        aba: "Vendas",
+        item_id: null,
+        data,
+        quantidade: null,
+        usuario_nome: usuarioAtualNome || "Usuário",
+        arquivo_nome: file.name,
+      });
+
+      await buscarUltimoPdv(data);
       setResumoImport({ ok: true, encontrados, naoEncontrados });
     } catch (err) {
       setResumoImport({ ok: false, texto: "Não foi possível ler o arquivo. Confira se é um .xlsx válido." });
@@ -902,21 +966,92 @@ function Financeiro({ dataInicial }) {
     setImportando(false);
   };
 
+  const visualizarUltimoPdv = async () => {
+    setAbrindoPdv(true);
+    try {
+      const { data: linha, error } = await sb.from("pdv_importacoes")
+        .select("nome_arquivo, arquivo_base64").eq("data", data).maybeSingle();
+      if (!error && linha?.arquivo_base64) {
+        abrirDataUrlEmNovaAba(linha.arquivo_base64, linha.nome_arquivo);
+      }
+    } finally {
+      setAbrindoPdv(false);
+    }
+  };
+
+  const apagarUltimoPdv = async () => {
+    if (bloqueado || !ultimoPdv) return;
+    if (!window.confirm(`Apagar o PDV "${ultimoPdv.nome_arquivo}" importado para ${formatarData(data)}? As quantidades de vendas lançadas por essa importação serão zeradas.`)) return;
+    setApagandoPdv(true);
+    try {
+      const novosValores = {};
+      for (const item of ITEMS) {
+        await salvarRegistro({ item_id: item.id, data, tipo: "venda", quantidade: 0, registrarAlteracao: false });
+        novosValores[item.id] = 0;
+      }
+      setValores((prev) => ({ ...prev, ...novosValores }));
+      await sb.from("pdv_importacoes").delete().eq("data", data);
+      await sb.from("alteracoes").insert({
+        aba: "Vendas",
+        item_id: null,
+        data,
+        quantidade: null,
+        usuario_nome: usuarioAtualNome || "Usuário",
+        arquivo_nome: `[removido] ${ultimoPdv.nome_arquivo}`,
+      });
+      setUltimoPdv(null);
+      setResumoImport(null);
+    } catch (e) {
+      console.error("Não foi possível apagar o PDV:", e);
+    }
+    setApagandoPdv(false);
+  };
+
   return (
     <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 10 }}>
       <DateBar data={data} setData={setData} />
 
       <input ref={fileInputRef} type="file" accept=".xlsx,.xls" onChange={importarArquivo} style={{ display: "none" }} />
-      <button onClick={() => fileInputRef.current.click()} disabled={bloqueado || importando}
-        style={{
-          display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
-          background: bloqueado ? accentSoft : accent, color: bloqueado ? inkSoft : "#fff",
-          border: "none", borderRadius: 10, padding: "11px 0", cursor: bloqueado || importando ? "default" : "pointer",
-          fontFamily: sans, fontWeight: 700, fontSize: 13.5,
-        }}>
-        <Icon name="paperclip" size={15} color={bloqueado ? inkSoft : "#fff"} />
-        {importando ? "Importando..." : "Importar PDV"}
-      </button>
+      <div style={{ display: "flex", gap: 8 }}>
+        <button onClick={() => fileInputRef.current.click()} disabled={bloqueado || importando}
+          style={{
+            flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+            background: bloqueado ? accentSoft : accent, color: bloqueado ? inkSoft : "#fff",
+            border: "none", borderRadius: 10, padding: "11px 0", cursor: bloqueado || importando ? "default" : "pointer",
+            fontFamily: sans, fontWeight: 700, fontSize: 13.5,
+          }}>
+          <Icon name="paperclip" size={15} color={bloqueado ? inkSoft : "#fff"} />
+          {importando ? "Importando..." : "Importar PDV"}
+        </button>
+        {ultimoPdv && (
+          <button onClick={visualizarUltimoPdv} disabled={abrindoPdv}
+            style={{
+              display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+              background: card, color: accent, border: `1px solid ${line}`, borderRadius: 10,
+              padding: "0 14px", cursor: abrindoPdv ? "default" : "pointer",
+              fontFamily: sans, fontWeight: 700, fontSize: 12.5, whiteSpace: "nowrap",
+            }}>
+            <Icon name="eye" size={15} color={accent} />
+            {abrindoPdv ? "Abrindo..." : "Ver último PDV"}
+          </button>
+        )}
+        {ultimoPdv && !bloqueado && (
+          <button onClick={apagarUltimoPdv} disabled={apagandoPdv} title="Apagar último PDV importado"
+            style={{
+              display: "flex", alignItems: "center", justifyContent: "center",
+              background: card, color: danger, border: `1px solid ${line}`, borderRadius: 10,
+              width: 42, cursor: apagandoPdv ? "default" : "pointer",
+            }}>
+            <Icon name="trash" size={16} color={danger} />
+          </button>
+        )}
+      </div>
+
+      {ultimoPdv && (
+        <div style={{ fontFamily: sans, fontSize: 10.5, color: inkSoft, textAlign: "center" }}>
+          Último arquivo importado: <b style={{ color: ink }}>{ultimoPdv.nome_arquivo}</b> em {formatarDataHora(ultimoPdv.importado_em)}
+        </div>
+      )}
 
       {resumoImport && !importando && (
         <div style={{ fontFamily: sans, fontSize: 11.5, color: resumoImport.ok ? ink : danger, background: resumoImport.ok ? accentSoft : dangerSoft, borderRadius: 8, padding: "8px 10px" }}>
@@ -1467,16 +1602,33 @@ function HistoricoAlteracoes() {
       )}
       {linhas.map((l) => (
         <div key={l.id} style={{ background: card, border: `1px solid ${line}`, borderRadius: 8, padding: "9px 12px", display: "flex", flexDirection: "column", gap: 2 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", fontFamily: sans, fontSize: 12, fontWeight: 700, color: ink }}>
-            <span>{l.aba} · {nomeDoItem(l.item_id)}</span>
-            <span style={{ color: inkSoft, fontWeight: 600 }}>{formatarDataHora(l.criado_em)}</span>
-          </div>
-          <div style={{ fontFamily: sans, fontSize: 11.5, color: inkSoft }}>
-            Referente a {formatarData(l.data)} — novo valor: <b style={{ color: ink }}>{l.quantidade}</b>
-          </div>
-          <div style={{ fontFamily: sans, fontSize: 10.5, color: inkSoft }}>
-            Alterado por: <b style={{ color: ink }}>{l.usuario_nome || "Registro anterior"}</b>
-          </div>
+          {l.arquivo_nome ? (
+            <>
+              <div style={{ display: "flex", justifyContent: "space-between", fontFamily: sans, fontSize: 12, fontWeight: 700, color: ink }}>
+                <span>{l.aba} · {l.arquivo_nome.startsWith("[removido]") ? "PDV removido" : "Importação de PDV"}</span>
+                <span style={{ color: inkSoft, fontWeight: 600 }}>{formatarDataHora(l.criado_em)}</span>
+              </div>
+              <div style={{ fontFamily: sans, fontSize: 11.5, color: inkSoft }}>
+                Referente a {formatarData(l.data)} — arquivo {l.arquivo_nome.startsWith("[removido]") ? "removido" : "importado"}: <b style={{ color: ink }}>{l.arquivo_nome.replace("[removido] ", "")}</b>
+              </div>
+              <div style={{ fontFamily: sans, fontSize: 10.5, color: inkSoft }}>
+                Alterado por: <b style={{ color: ink }}>{l.usuario_nome || "Registro anterior"}</b>
+              </div>
+            </>
+          ) : (
+            <>
+              <div style={{ display: "flex", justifyContent: "space-between", fontFamily: sans, fontSize: 12, fontWeight: 700, color: ink }}>
+                <span>{l.aba} · {nomeDoItem(l.item_id)}</span>
+                <span style={{ color: inkSoft, fontWeight: 600 }}>{formatarDataHora(l.criado_em)}</span>
+              </div>
+              <div style={{ fontFamily: sans, fontSize: 11.5, color: inkSoft }}>
+                Referente a {formatarData(l.data)} — novo valor: <b style={{ color: ink }}>{l.quantidade}</b>
+              </div>
+              <div style={{ fontFamily: sans, fontSize: 10.5, color: inkSoft }}>
+                Alterado por: <b style={{ color: ink }}>{l.usuario_nome || "Registro anterior"}</b>
+              </div>
+            </>
+          )}
         </div>
       ))}
     </div>
