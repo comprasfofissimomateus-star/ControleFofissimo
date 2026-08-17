@@ -277,6 +277,10 @@ function formatarDataDeTimestamp(ts) {
   const d = new Date(ts);
   return d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
 }
+function formatarDataHoraCompleta(ts) {
+  const d = new Date(ts);
+  return d.toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
+}
 
 function normalizarTexto(txt) {
   return (txt || "")
@@ -1469,12 +1473,15 @@ function EstoqueEsperadoDia() {
           <button
             onClick={() => setMostrarCongelado((v) => !v)}
             style={{
-              display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+              display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 4,
               background: azul, border: "none", color: "#fff", cursor: "pointer",
               borderRadius: 10, padding: "11px 14px", fontFamily: sans, fontWeight: 800, fontSize: 13.5, textAlign: "center",
             }}
           >
-            🔒 {mostrarCongelado ? "Ocultar" : "Ver"} resultado congelado de {formatarDataDeTimestamp(congelado.esperado_congelado_em)}
+            <span>🔒 {mostrarCongelado ? "Ocultar" : "Ver"} resultado congelado</span>
+            <span style={{ fontWeight: 700, fontSize: 11, opacity: 0.9 }}>
+              Congelado em {formatarDataHoraCompleta(congelado.esperado_congelado_em)}
+            </span>
           </button>
 
           {mostrarCongelado && (
