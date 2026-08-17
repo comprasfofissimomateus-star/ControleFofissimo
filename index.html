@@ -1153,9 +1153,10 @@ function PerdasProtegido({ dataInicial }) {
 }
 
 const ETAPAS_CONFRONTO = [
-  "Coletando estoque inicial congelado das 10h...",
-  "Carregando estoque esperado trancado...",
-  "Comparando estoque inicial com o estoque esperado...",
+  "Coletando estoque final contado às 23h...",
+  "Carregando o estoque congelado das 23:30 de ontem...",
+  "Somando entradas e descontando vendas e perdas...",
+  "Comparando o estoque físico final com o estoque esperado...",
 ];
 
 function nomeDoItem(id) {
@@ -1221,8 +1222,8 @@ const azulSoft = "#E3ECFB";
 // =========================
 // CICLO AUTOMÁTICO DIÁRIO
 // 23:30: congela o estoque esperado do dia (fica disponível como "esperado" do
-// próximo dia, mantendo compatibilidade com o confronto das 10h).
-// 10h: congela o estoque inicial do dia e confronta com o esperado congelado.
+// próximo dia).
+// 23h: confronta o estoque físico final com o esperado após entradas, vendas e perdas.
 // O resultado fica no Supabase e no Histórico. Às 00:01 o cálculo ao vivo do
 // novo dia recomeça, enquanto o resultado congelado da véspera continua
 // disponível na tela para consulta.
@@ -1252,118 +1253,6 @@ function mapaPorItens(rows) {
 
 // O banco é a autoridade do ciclo. Estas funções apenas acionam o fechamento
 // caso o cron ainda não tenha feito o trabalho (fallback para navegador).
-async function executarFechamentoDas2330() {
-  const dataAlvo = amanhaStr();
-  const { data: existente, error } = await sb.from("estoque_fechamentos")
-    .select("*").eq("data_referencia", dataAlvo).maybeSingle();
-  if (error) throw error;
-  if (existente && existente.esperado_congelado_em) return existente;
-
-  const esperado = await lerMapaRegistrosPermitidos(hojeStr());
-  const { data, error: erroInsert } = await sb.from("estoque_fechamentos").insert({
-    data_referencia: dataAlvo,
-    esperado: esperado,
-    esperado_congelado_em: new Date().toISOString()
-  }).select("*").single();
-
-  if (erroInsert) {
-    // Se outra execução acabou de congelar, apenas reutiliza o registro.
-    const { data: novamente } = await sb.from("estoque_fechamentos")
-      .select("*").eq("data_referencia", dataAlvo).maybeSingle();
-    if (novamente) return novamente;
-    throw erroInsert;
-  }
-  return data;
-}
-
-async function executarFechamentoDas10h() {
-  const dataHoje = hojeStr();
-  const { data: ciclo, error: erroCiclo } = await sb.from("estoque_fechamentos")
-    .select("*").eq("data_referencia", dataHoje).maybeSingle();
-  if (erroCiclo) throw erroCiclo;
-  if (!ciclo || !ciclo.esperado_congelado_em) {
-    throw new Error("O estoque esperado das 22h de ontem ainda não foi congelado.");
-  }
-  if (ciclo.confronto_executado_em) return ciclo;
-
-  const { data: inicialRows, error: erroInicial } = await sb.from("registros")
-    .select("item_id, quantidade").eq("tipo", "contagem").eq("data", dataHoje);
-  if (erroInicial) throw erroInicial;
-
-  const contado = mapaPorItens(inicialRows);
-  const esperado = ciclo.esperado || {};
-  const linhas = ITEMS.map(item => {
-    const esperadoV = Number(esperado[item.id] || 0);
-    const contadoV = Number(contado[item.id] || 0);
-    const diferenca = contadoV - esperadoV;
-    return {
-      data_referencia: dataHoje,
-      item_id: item.id,
-      status: diferenca !== 0 ? "alerta" : "ok",
-      estoque_esperado: esperadoV,
-      estoque_contado: contadoV,
-      diferenca,
-      executado_em: new Date().toISOString()
-    };
-  });
-
-  const { error: erroInsert } = await sb.from("confrontos").insert(linhas);
-  if (erroInsert) throw erroInsert;
-
-  // Registro explícito no Histórico do sistema.
-  const historico = ITEMS.map(item => {
-    const l = linhas.find(x => x.item_id === item.id);
-    return {
-      data_hora: l.executado_em,
-      item_id: item.id,
-      item_nome: nomeDoItem(item.id),
-      inicio_dia: l.estoque_contado,
-      entradas: 0,
-      perdas: 0,
-      vendas: 0,
-      esperado: l.estoque_esperado,
-      contado: l.estoque_contado,
-      diferenca: l.diferenca,
-      status: l.status
-    };
-  });
-  const { error: erroHistorico } = await sb.from("confronto_historico").insert(historico);
-  if (erroHistorico) throw erroHistorico;
-
-  const { data: atualizado, error: erroUpdate } = await sb.from("estoque_fechamentos")
-    .update({
-      estoque_inicial_10h: contado,
-      inicial_10h_congelado_em: new Date().toISOString(),
-      confronto_executado_em: new Date().toISOString()
-    })
-    .eq("data_referencia", dataHoje)
-    .is("confronto_executado_em", null)
-    .select("*").single();
-
-  if (erroUpdate) throw erroUpdate;
-  return atualizado;
-}
-
-function agendarCicloAutomatico(onResultado) {
-  let cancelado = false;
-  const verificar = async () => {
-    if (cancelado) return;
-    try {
-      const hora = horaAtualDecimal();
-      if (hora >= 23.5) await executarFechamentoDas2330();
-      if (hora >= (10 + 1 / 60)) {
-        const resultado = await executarFechamentoDas10h();
-        if (onResultado) onResultado(resultado);
-      }
-    } catch (e) {
-      console.error("Ciclo automático diário:", e);
-    }
-  };
-  verificar();
-  const timer = setInterval(verificar, 10000);
-  return () => { cancelado = true; clearInterval(timer); };
-}
-
 function EstoqueEsperadoDia() {
   const [carregando, setCarregando] = useState(true);
   const [resultadoAtual, setResultadoAtual] = useState(null);
@@ -1390,8 +1279,8 @@ function EstoqueEsperadoDia() {
       setPausado(emPausa);
 
       if (emPausa) {
-        // Garante que o congelamento de hoje já aconteceu (fallback caso o cron não tenha rodado).
-        if (passouDas2330()) await executarFechamentoDas2330();
+        // O congelamento é responsabilidade exclusiva do Supabase Cron às 23:30.
+        // O navegador apenas consulta o resultado já congelado.
         setResultadoAtual(null);
       } else {
         setResultadoAtual(await lerMapaRegistrosPermitidos(hojeStr()));
@@ -1518,79 +1407,53 @@ function Confronto() {
     confrontarAgora();
   };
 
-  const confrontarAgora = () => {
+  const confrontarAgora = async () => {
     setMsgFinal(null);
     setRodando(true);
     setProgresso(0);
-    let passo = 0;
-    const proximo = async () => {
-      if (passo >= ETAPAS_CONFRONTO.length) {
-        try {
-          const hoje = hojeStr();
-          const { data: ciclo, error: erroCiclo } = await sb.from("estoque_fechamentos")
-            .select("*").eq("data_referencia", hoje).maybeSingle();
-          if (erroCiclo) throw erroCiclo;
-          if (!ciclo || !ciclo.esperado_congelado_em) {
-            throw new Error("Ainda não existe estoque esperado congelado das 22h de ontem.");
-          }
-          if (!ciclo.inicial_10h_congelado_em) {
-            await executarFechamentoDas10h();
-          }
-          const { data: cicloAtualizado, error: erroLeitura } = await sb.from("estoque_fechamentos")
-            .select("*").eq("data_referencia", hoje).single();
-          if (erroLeitura) throw erroLeitura;
 
-          const esperado = cicloAtualizado.esperado || {};
-          const estoqueInicial = cicloAtualizado.estoque_inicial_10h || {};
-          const executadoEm = new Date().toISOString();
-          const linhas = ITEMS.map(item => {
-            const esperadoV = Number(esperado[item.id] || 0);
-            const contadoV = Number(estoqueInicial[item.id] || 0);
-            const diferenca = contadoV - esperadoV;
-            return {
-              data_referencia: hoje,
-              executado_em: executadoEm,
-              item_id: item.id,
-              status: diferenca !== 0 ? "alerta" : "ok",
-              estoque_esperado: esperadoV,
-              estoque_contado: contadoV,
-              diferenca
-            };
-          });
-          const { data: existentes } = await sb.from("confrontos")
-            .select("id").eq("data_referencia", hoje).limit(ITEMS.length);
-          if (!existentes || existentes.length < ITEMS.length) {
-            const { error: erroInsert } = await sb.from("confrontos").insert(linhas);
-            if (erroInsert) throw new Error(erroInsert.message);
-            const historico = linhas.map(l => ({
-              data_hora: executadoEm, item_id: l.item_id, item_nome: nomeDoItem(l.item_id),
-              inicio_dia: l.estoque_contado, entradas: 0, perdas: 0, vendas: 0,
-              esperado: l.estoque_esperado, contado: l.estoque_contado,
-              diferenca: l.diferenca, status: l.status
-            }));
-            const { error: erroHist } = await sb.from("confronto_historico").insert(historico);
-            if (erroHist) throw erroHist;
-          }
-
-          const temInconsistencia = linhas.some((l) => l.status === "alerta");
-          setMsgFinal({
-            ok: true,
-            texto: temInconsistencia ? "Confronto concluído: foram encontradas inconsistências." : "Confronto concluído: tudo bate certinho.",
-          });
-        } catch (e) {
-          setMsgFinal({ ok: false, texto: "Erro: " + (e && e.message ? e.message : String(e)) });
-        }
-        setRodando(false);
-        setRecarregarChave((k) => k + 1);
-        return;
+    try {
+      const hora = horaAtualDecimal();
+      if (hora < 23) {
+        throw new Error("O confronto diário só pode ser realizado a partir das 23h.");
       }
-      setEtapaTexto(ETAPAS_CONFRONTO[passo]);
-      setProgresso(Math.round(((passo + 1) / ETAPAS_CONFRONTO.length) * 100));
-      passo++;
-      setTimeout(proximo, 450);
-    };
-    proximo();
+
+      for (let passo = 0; passo < ETAPAS_CONFRONTO.length; passo++) {
+        setEtapaTexto(ETAPAS_CONFRONTO[passo]);
+        setProgresso(Math.round(((passo + 1) / ETAPAS_CONFRONTO.length) * 100));
+        await new Promise((resolve) => setTimeout(resolve, 450));
+      }
+
+      // O cálculo oficial é executado no Supabase/Edge Function, nunca pelo navegador.
+      const { data: resposta, error: erroFuncao } = await sb.functions.invoke("confronto_diario", {
+        body: {}
+      });
+      if (erroFuncao) throw erroFuncao;
+      if (resposta && resposta.sucesso === false) {
+        throw new Error(resposta.error || "O confronto diário não pôde ser executado.");
+      }
+
+      const hoje = hojeStr();
+      const { data: linhas, error: erroLeitura } = await sb.from("confrontos")
+        .select("*").eq("data_referencia", hoje);
+      if (erroLeitura) throw erroLeitura;
+
+      const temInconsistencia = (linhas || []).some((l) => l.status === "alerta");
+      setMsgFinal({
+        ok: true,
+        texto: temInconsistencia
+          ? "Confronto concluído: foram encontradas inconsistências."
+          : "Confronto concluído: tudo bate certinho.",
+      });
+    } catch (e) {
+      setMsgFinal({ ok: false, texto: "Erro: " + (e && e.message ? e.message : String(e)) });
+    } finally {
+      setRodando(false);
+      setRecarregarChave((k) => k + 1);
+    }
   };
+
+  const podeConfrontar = horaAtualDecimal() >= 23;
 
   return (
     <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 12 }}>
@@ -1601,16 +1464,32 @@ function Confronto() {
       <div className="battle-stage">
         <div className="bolinho-fighter left"><BolinhoFighter mirrored={false} /></div>
         <div className="bolinho-fighter right"><BolinhoFighter mirrored={true} /></div>
-        <button className="confrontar-btn" onClick={iniciarConfronto} disabled={true}>
+        <button className="confrontar-btn" onClick={iniciarConfronto} disabled={rodando || !podeConfrontar}>
           ⚔ Confrontar agora
         </button>
       </div>
-      <div style={{ fontFamily: sans, fontWeight: 800, fontSize: 12, color: inkSoft, textAlign: "center" }}>
-        (em manutenção)
-      </div>
+
+      {rodando && (
+        <div style={{ fontFamily: sans, fontSize: 11.5, color: inkSoft, textAlign: "center" }}>
+          {etapaTexto} ({progresso}%)
+        </div>
+      )}
+
+      {msgFinal && (
+        <div style={{ fontFamily: sans, fontWeight: 800, fontSize: 12, color: msgFinal.ok ? good : danger, textAlign: "center" }}>
+          {msgFinal.texto}
+        </div>
+      )}
+
+      {!podeConfrontar && (
+        <div style={{ fontFamily: sans, fontSize: 10.5, color: inkSoft, textAlign: "center" }}>
+          O confronto diário será realizado a partir das 23h, após todas as vendas, perdas e entradas do dia.
+        </div>
+      )}
 
       <div style={{ fontFamily: sans, fontSize: 10.5, color: inkSoft, textAlign: "center" }}>
-        Compara o estoque esperado trancado do dia anterior com o estoque inicial contado pelos funcionários no novo dia.
+        Fórmula: estoque congelado + entradas − vendas − perdas = estoque esperado às 23h.
+        O estoque físico contado às 23h é comparado com esse resultado.
       </div>
     </div>
   );
@@ -1689,9 +1568,8 @@ function HistoricoAlteracoes() {
 }
 
 function CicloAutomaticoGlobal() {
-  useEffect(() => {
-    return agendarCicloAutomatico(() => {});
-  }, []);
+  // Os ciclos oficiais de 23:30 e 23:00 são executados exclusivamente
+  // pelo Supabase Cron/Edge Function. O navegador não dispara fechamentos.
   return null;
 }
 
