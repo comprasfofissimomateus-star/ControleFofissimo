@@ -1915,7 +1915,7 @@ function InstrucoesInicio({ permissoes }) {
   const instrucoes = {
     estoque: ["Estoque inicial do dia", <>Quantidade disponível de cada item no início da operação <b>(deve ser digitada manualmente todos os dias)</b>.</>],
     entradas: ["Entradas", <>Quantidade de cada item que chegou no estoque naquele dia <b>(deve ser digitada manualmente nos dias que chegarem itens no estoque)</b>.<div style={{marginTop:6,fontWeight:800,color:danger}}>É NECESSÁRIO ANEXO DE COMPROVANTE PARA CONFIRMAR ENTRADAS.</div></>],
-    perdas: ["Perdas", <>Todos os itens do estoque que estragarem, sumirem ou não estiverem em condições de uso e forem descartados devem ser adicionados manualmente aqui.</>],
+    perdas: ["Perdas", <>Todos os itens fora da condição de uso ou venda devem ser adicionados manualmente aqui.</>],
     financeiro: ["Vendas", <>As vendas do dia só podem ser importadas diretamente do PDV, <b>não podendo ser digitadas manualmente</b>.</>],
     historico: ["Histórico", <>Consulte as alterações registradas no sistema para acompanhar os lançamentos realizados.</>]
   };
