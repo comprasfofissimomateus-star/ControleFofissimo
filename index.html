@@ -939,6 +939,7 @@ function Estoque({ dataInicial }) {
   const [valores, setValores] = useState(null);
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState(false);
+  const [salvando, setSalvando] = useState(false);
 
   const carregar = async () => {
     setErro(false);
@@ -965,7 +966,65 @@ function Estoque({ dataInicial }) {
     return () => clearInterval(timer);
   }, [data]);
 
+  // Quando não houver uma contagem salva para o dia, o valor inicial vem
+  // diretamente do congelamento das 23:30 do dia anterior. A pessoa pode
+  // alterar cada campo para registrar a contagem física real.
+  const carregarBaseDoCongelamentoAnterior = async () => {
+    const ontem = new Date(`${data}T12:00:00`);
+    ontem.setDate(ontem.getDate() - 1);
+    const anterior = `${ontem.getFullYear()}-${String(ontem.getMonth()+1).padStart(2,"0")}-${String(ontem.getDate()).padStart(2,"0")}`;
+    const { data: fechamento, error } = await sb.from("estoque_fechamentos")
+      .select("esperado, esperado_congelado_em")
+      .eq("data_referencia", data)
+      .not("esperado_congelado_em", "is", null)
+      .maybeSingle();
+    if (error) throw error;
+    return fechamento?.esperado || null;
+  };
+
+  const mudar = async (id, valor) => {
+    const v = Math.max(0, Number.isFinite(Number(valor)) ? Number(valor) : 0);
+    const mapa = { ...(valores || {}), [id]: v };
+    setValores(mapa);
+    setSalvando(true);
+    try {
+      const { error } = await sb.from("estoque_fechamentos")
+        .update({ estoque_inicial_10h: mapa, inicial_10h_congelado_em: new Date().toISOString() })
+        .eq("data_referencia", data);
+      if (error) throw error;
+    } catch (e) {
+      console.error("Salvando estoque inicial:", e);
+      setErro(true);
+    } finally {
+      setSalvando(false);
+    }
+  };
+
+  const iniciarComCongelamento = async () => {
+    try {
+      setCarregando(true);
+      const base = await carregarBaseDoCongelamentoAnterior();
+      if (base) {
+        setValores(base);
+        const { error } = await sb.from("estoque_fechamentos")
+          .update({ estoque_inicial_10h: base, inicial_10h_congelado_em: new Date().toISOString() })
+          .eq("data_referencia", data);
+        if (error) throw error;
+      }
+    } catch (e) {
+      console.error("Carregando congelamento anterior:", e);
+      setErro(true);
+    } finally {
+      setCarregando(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!carregando && !erro && !valores) iniciarComCongelamento();
+  }, [carregando, erro, valores, data]);
+
   const mapa = valores || Object.fromEntries(ITEMS.map((i) => [i.id, 0]));
+  const bloqueado = dataBloqueada(data);
 
   return (
     <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 10 }}>
@@ -976,11 +1035,12 @@ function Estoque({ dataInicial }) {
         padding: "10px 14px", textAlign: "center", fontFamily: sans,
         fontWeight: 800, fontSize: 12.5, color: azul
       }}>
-        ❄️ Estoque inicial puxado automaticamente do congelamento anterior
+        ❄️ Estoque inicial começa com o congelamento das 23:30 do dia anterior
       </div>
 
+      {salvando && <div style={{ fontFamily: sans, fontSize: 11, color: inkSoft, textAlign: "center" }}>Salvando...</div>}
       {carregando && <div style={{ fontFamily: sans, fontSize: 12, color: inkSoft, textAlign: "center" }}>Carregando estoque inicial...</div>}
-      {erro && <div style={{ fontFamily: sans, fontSize: 11.5, color: danger, textAlign: "center" }}>Não foi possível carregar o estoque inicial do Supabase.</div>}
+      {erro && <div style={{ fontFamily: sans, fontSize: 11.5, color: danger, textAlign: "center" }}>Não foi possível carregar ou salvar o estoque inicial.</div>}
 
       {!carregando && !erro && (
         <ListaPorCategoria>
@@ -989,13 +1049,26 @@ function Estoque({ dataInicial }) {
             return (
               <div key={item.id} style={{
                 background: card, border: `1px solid ${line}`, borderRadius: 10,
-                padding: "10px 14px", display: "flex", justifyContent: "space-between", alignItems: "center"
+                padding: "10px 14px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10
               }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
                   <ItemIcon id={item.id} />
                   <span style={{ fontFamily: sans, fontWeight: 600, fontSize: 14, color: ink }}>{item.nome}</span>
                 </div>
-                <span style={{ fontFamily: sans, fontWeight: 800, fontSize: 16, color: v > 0 ? good : v === 0 ? amarelo : danger }}>{v}</span>
+                <input
+                  type="number"
+                  min="0"
+                  step="1"
+                  inputMode="numeric"
+                  value={v}
+                  disabled={bloqueado}
+                  onChange={(e) => mudar(item.id, e.target.value)}
+                  style={{
+                    width: 72, boxSizing: "border-box", padding: "8px 8px", textAlign: "center",
+                    border: `1px solid ${line}`, borderRadius: 8, background: bloqueado ? "#f0ece8" : "#fff",
+                    color: ink, fontFamily: sans, fontWeight: 800, fontSize: 15, outline: "none"
+                  }}
+                />
               </div>
             );
           }}
@@ -1004,7 +1077,6 @@ function Estoque({ dataInicial }) {
     </div>
   );
 }
-
 function Entradas({ dataInicial }) {
   const { data, setData, valores, setValores, carregando, erro } = useDiaCarregado("entrada", dataInicial);
   const bloqueado = dataBloqueada(data);
