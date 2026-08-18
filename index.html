@@ -1053,7 +1053,13 @@ function Entradas({ dataInicial }) {
   const removerAnexo = async (id) => {
     if (bloqueado) return;
     setValores((prev) => ({ ...prev, [id]: { qtd: 0, foto: null, nomeArquivo: null } }));
-    await salvarRegistro({ item_id: id, data, tipo: "entrada", quantidade: 0, foto_url: null, nome_arquivo: null });
+    await salvarRegistro({ item_id: id, data, tipo: "entrada", quantidade: 0, foto_url: null, nome_arquivo: null, registrarAlteracao: false });
+    const { error: erroHistorico } = await sb.from("alteracoes").insert({
+      aba: "Entradas", item_id: id, data, quantidade: null,
+      usuario_nome: usuarioAtualNome || "Usuário",
+      arquivo_nome: `[anexo apagado] ${ITEMS.find((i) => i.id === id)?.nome || id}`,
+    });
+    if (erroHistorico) console.error("Não foi possível registrar a exclusão do anexo no histórico:", erroHistorico);
   };
 
   return (
@@ -1287,20 +1293,17 @@ function Financeiro({ dataInicial }) {
             {abrindoPdv ? "Abrindo..." : "Ver último PDV"}
           </button>
         )}
-        {ultimoPdv && (
-          <button onClick={apagarUltimoPdv} disabled={apagandoPdv} title="Apagar último PDV importado"
-            style={{
-              display: "flex", alignItems: "center", justifyContent: "center",
-              background: card, color: danger, border: `1px solid ${line}`, borderRadius: 10,
-              padding: "0 12px", cursor: apagandoPdv ? "default" : "pointer", whiteSpace: "nowrap",
-            }}>
-            <Icon name="trash" size={16} color={danger} />
-            <span style={{ fontFamily: sans, fontWeight: 700, fontSize: 11.5 }}>
-              {apagandoPdv ? "Excluindo..." : "Excluir último PDV"}
-            </span>
-          </button>
-        )}
       </div>
+      {ultimoPdv && (
+        <button onClick={apagarUltimoPdv} disabled={apagandoPdv} title="Excluir último PDV importado" aria-label="Excluir último PDV importado"
+          style={{
+            display: "flex", alignItems: "center", justifyContent: "center",
+            alignSelf: "flex-start", background: card, color: danger, border: `1px solid ${line}`, borderRadius: 10,
+            width: 42, height: 38, padding: 0, cursor: apagandoPdv ? "default" : "pointer",
+          }}>
+          <Icon name="trash" size={17} color={danger} />
+        </button>
+      )}
 
       {ultimoPdv && (
         <div style={{ fontFamily: sans, fontSize: 10.5, color: inkSoft, textAlign: "center" }}>
@@ -1424,9 +1427,9 @@ const azulSoft = "#E3ECFB";
 // =========================
 // CICLO AUTOMÁTICO DIÁRIO
 // 10:00: congela o estoque esperado do dia (fica disponível como "esperado" do
-// dia atual, para uso no confronto automático das 23:00 do mesmo dia).
+// dia atual, para uso no confronto automático das 10:05 do mesmo dia).
 // O banco executa o ciclo automático. 10:00 congela o estoque esperado;
-// 23:00 do mesmo dia é o horário oficial do confronto. A interface apenas
+// 10:05 do mesmo dia é o horário oficial do confronto. A interface apenas
 // consulta os resultados e não executa o confronto manualmente.
 // =========================
 
@@ -1551,7 +1554,7 @@ function agendarCicloAutomatico(onResultado) {
     try {
       const hora = horaAtualDecimal();
       if (hora >= 10) await executarFechamentoDas10h();
-      // O confronto oficial é executado pelo Supabase às 23:00 do mesmo dia.
+      // O confronto oficial é executado pelo Supabase às 10:05 do mesmo dia.
       // O navegador não executa mais o antigo fechamento/confronto das 10h.
     } catch (e) {
       console.error("Ciclo automático diário:", e);
@@ -1593,17 +1596,9 @@ function EstoqueEsperadoDia() {
   const calcular = async () => {
     setErro(false);
     try {
-      const emPausa = passouDas10h() || antesDoResetDiario();
-      setPausado(emPausa);
-
-      if (emPausa) {
-        // Garante que o congelamento de hoje já aconteceu (fallback caso o cron não tenha rodado).
-        if (passouDas10h()) await executarFechamentoDas10h();
-        setResultadoAtual(null);
-      } else {
-        const novoResultado = await lerMapaRegistrosPermitidos(hojeStr());
-        setResultadoAtual(prev => mapasIguais(prev, novoResultado) ? prev : novoResultado);
-      }
+      setPausado(false);
+      const novoResultado = await lerMapaRegistrosPermitidos(hojeStr());
+      setResultadoAtual(prev => mapasIguais(prev, novoResultado) ? prev : novoResultado);
 
       const novoCongelado = await buscarUltimoCongelado();
       setCongelado(prev => JSON.stringify(prev) === JSON.stringify(novoCongelado) ? prev : novoCongelado);
@@ -1672,8 +1667,8 @@ function EstoqueEsperadoDia() {
 
         <div style={{ fontFamily: sans, fontSize: 10.5, color: inkSoft, textAlign: "center", background: "#F7F2EC", borderRadius: 8, padding: "7px 10px" }}>
           {pausado
-            ? "O resultado de hoje já foi congelado às 10:00. O cálculo do novo dia recomeça às 00:01."
-            : "Calculando continuamente até 10:00, quando o resultado do dia é congelado."}
+            ? "A contagem de estoque permanece ativa continuamente."
+            : "Contagem de estoque ativa continuamente, com atualização em tempo real."}
         </div>
       </div>
 
@@ -1734,7 +1729,7 @@ function Confronto() {
       </div>
 
       <div style={{ fontFamily: sans, fontSize: 10.5, color: inkSoft, textAlign: "center" }}>
-        O ciclo congela o estoque às 10:00 e realiza o confronto às 23:00 do mesmo dia, considerando as movimentações do dia.
+        O ciclo congela o estoque às 10:00 e realiza o confronto às 10:05 do mesmo dia, considerando as movimentações do dia.
       </div>
     </div>
   );
@@ -1779,7 +1774,20 @@ function HistoricoAlteracoes() {
       )}
       {linhas.map((l) => (
         <div key={l.id} style={{ background: card, border: `1px solid ${line}`, borderRadius: 8, padding: "9px 12px", display: "flex", flexDirection: "column", gap: 2 }}>
-          {l.arquivo_nome ? (
+          {l.arquivo_nome?.startsWith("[anexo apagado]") ? (
+            <>
+              <div style={{ display: "flex", justifyContent: "space-between", fontFamily: sans, fontSize: 12, fontWeight: 700, color: ink }}>
+                <span>{l.aba} · Anexo apagado</span>
+                <span style={{ color: inkSoft, fontWeight: 600 }}>{formatarDataHora(l.criado_em)}</span>
+              </div>
+              <div style={{ fontFamily: sans, fontSize: 11.5, color: inkSoft }}>
+                {l.arquivo_nome.replace("[anexo apagado] ", "anexo apagado de ")}
+              </div>
+              <div style={{ fontFamily: sans, fontSize: 10.5, color: inkSoft }}>
+                Alterado por: <b style={{ color: ink }}>{l.usuario_nome || "Registro anterior"}</b>
+              </div>
+            </>
+          ) : l.arquivo_nome ? (
             <>
               <div style={{ display: "flex", justifyContent: "space-between", fontFamily: sans, fontSize: 12, fontWeight: 700, color: ink }}>
                 <span>{l.aba} · {l.arquivo_nome.startsWith("[removido]") ? "PDV removido" : "Importação de PDV"}</span>
