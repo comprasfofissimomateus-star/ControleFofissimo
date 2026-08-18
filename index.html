@@ -1083,14 +1083,10 @@ function VendasBloqueadas({ carregando = false }) {
   );
 }
 
-function VendasProtegido({ dataInicial, isAdmin = false }) {
-  const [status, setStatus] = useState(isAdmin ? "aberto" : "consultando");
+function VendasProtegido({ dataInicial }) {
+  const [status, setStatus] = useState("consultando");
 
   const verificarHorario = async () => {
-    if (isAdmin) {
-      setStatus("aberto");
-      return;
-    }
     setStatus("consultando");
     const agora = await obterHorarioInternetSaoPaulo();
     setStatus(agora && horarioVendasAberto(agora) ? "aberto" : "fechado");
@@ -1098,7 +1094,6 @@ function VendasProtegido({ dataInicial, isAdmin = false }) {
 
   useEffect(() => {
     verificarHorario();
-    if (isAdmin) return;
     const timer = setInterval(verificarHorario, 60000);
     return () => clearInterval(timer);
   }, []);
@@ -1108,7 +1103,12 @@ function VendasProtegido({ dataInicial, isAdmin = false }) {
 }
 
 function Financeiro({ dataInicial }) {
-  const { data, setData, valores, setValores, carregando, erro } = useDiaCarregado("venda", dataInicial);
+  const dataAnterior = (() => {
+    const d = new Date(dataInicial + "T12:00:00");
+    d.setDate(d.getDate() - 1);
+    return d.toISOString().slice(0, 10);
+  })();
+  const { data, valores, setValores, carregando, erro } = useDiaCarregado("venda", dataAnterior);
   const bloqueado = dataBloqueada(data);
   const fileInputRef = useRef(null);
   const [importando, setImportando] = useState(false);
@@ -1234,7 +1234,11 @@ function Financeiro({ dataInicial }) {
 
   return (
     <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 10 }}>
-      <DateBar data={data} setData={setData} />
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", background: accentSoft, borderRadius: 10, padding: "8px 12px" }}>
+        <span style={{ fontFamily: sans, fontSize: 12, fontWeight: 700, color: accent }}>
+          Referente ao dia {formatarDataCompleta(data)}
+        </span>
+      </div>
 
       <input ref={fileInputRef} type="file" accept=".xlsx,.xls" onChange={importarArquivo} style={{ display: "none" }} />
       <div style={{ display: "flex", gap: 8 }}>
@@ -2154,7 +2158,7 @@ function App() {
                 {tab==="estoque" && <Estoque dataInicial={hojeStr()} />}
                 {tab==="entradas" && <EntradasProtegido dataInicial={hojeStr()} />}
                 {tab==="perdas" && <PerdasProtegido dataInicial={hojeStr()} />}
-                {tab==="financeiro" && <VendasProtegido dataInicial={hojeStr()} isAdmin={usuario.permissoes.includes("admin")} />}
+                {tab==="financeiro" && <VendasProtegido dataInicial={hojeStr()} />}
                 {tab==="confronto" && <Confronto />}
                 {tab==="historico" && <HistoricoAlteracoes />}
               </div>
