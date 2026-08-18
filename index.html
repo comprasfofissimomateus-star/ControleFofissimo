@@ -690,14 +690,26 @@ function DateBar({ data, setData }) {
   const bloqueada = dataBloqueada(data);
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, background: accentSoft, borderRadius: 10, padding: "8px 12px" }}>
+        <span style={{ fontFamily: sans, fontSize: 12, fontWeight: 700, color: accent }}>Data de referência:</span>
+        <input type="date" value={data} onChange={(e) => setData(e.target.value)} style={{
+          fontFamily: sans, fontSize: 12, fontWeight: 700, color: accent,
+          border: `1px solid ${accent}`, borderRadius: 7, padding: "5px 7px", background: "#fff"
+        }} />
+      </div>
+      {bloqueada && <div style={{ fontFamily: sans, fontSize: 11, color: inkSoft, textAlign: "center" }}>
+        {passada ? "Data passada" : "Data futura"} — somente visualização, não é possível editar.
+      </div>}
+    </div>
+  );
+}
+
+function DateBarVendas() {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "center", background: accentSoft, borderRadius: 10, padding: "8px 12px" }}>
         <span style={{ fontFamily: sans, fontSize: 12, fontWeight: 700, color: accent }}>Referente ao dia {formatarDataCompleta(dataAnteriorStr())}</span>
       </div>
-      {bloqueada && (
-        <div style={{ fontFamily: sans, fontSize: 11, color: inkSoft, textAlign: "center" }}>
-          {passada ? "Data passada" : "Data futura"} — somente visualização, não é possível editar.
-        </div>
-      )}
     </div>
   );
 }
@@ -1235,7 +1247,7 @@ function Financeiro({ dataInicial }) {
 
   return (
     <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 10 }}>
-      <DateBar data={data} setData={setData} />
+      <DateBarVendas />
 
       <input ref={fileInputRef} type="file" accept=".xlsx,.xls" onChange={importarArquivo} style={{ display: "none" }} />
       <div style={{ display: "flex", gap: 8 }}>
