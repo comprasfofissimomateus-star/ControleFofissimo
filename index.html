@@ -239,8 +239,8 @@ function horaAtualDecimal() {
   const d = new Date();
   return d.getHours() + d.getMinutes() / 60 + d.getSeconds() / 3600;
 }
-function passouDas2330() {
-  return horaAtualDecimal() >= 23.5;
+function passouDas10h() {
+  return horaAtualDecimal() >= 10;
 }
 function antesDoResetDiario() {
   return horaAtualDecimal() < (1 / 60);
@@ -1043,7 +1043,7 @@ function Entradas({ dataInicial }) {
   };
   const anexar = async (id, dataUrl, nome) => {
     if (bloqueado) return;
-    const salvo = await salvarRegistro({ item_id: id, data, tipo: "entrada", quantidade: valores[id].qtd, foto_url: dataUrl, nome_arquivo: nome });
+    const salvo = await salvarRegistro({ item_id: id, data, tipo: "entrada", quantidade: valores[id].qtd, foto_url: dataUrl, nome_arquivo: nome, registrarAlteracao: false });
     if (!salvo) {
       alert("O comprovante não pôde ser salvo no Supabase. Tente novamente.");
       return;
@@ -1231,7 +1231,7 @@ function Financeiro({ dataInicial }) {
   };
 
   const apagarUltimoPdv = async () => {
-    if (bloqueado || !ultimoPdv) return;
+    if (!ultimoPdv) return;
     if (!window.confirm(`Apagar o PDV "${ultimoPdv.nome_arquivo}" importado para ${formatarData(data)}? As quantidades de vendas lançadas por essa importação serão zeradas.`)) return;
     setApagandoPdv(true);
     try {
@@ -1287,14 +1287,17 @@ function Financeiro({ dataInicial }) {
             {abrindoPdv ? "Abrindo..." : "Ver último PDV"}
           </button>
         )}
-        {ultimoPdv && !bloqueado && (
+        {ultimoPdv && (
           <button onClick={apagarUltimoPdv} disabled={apagandoPdv} title="Apagar último PDV importado"
             style={{
               display: "flex", alignItems: "center", justifyContent: "center",
               background: card, color: danger, border: `1px solid ${line}`, borderRadius: 10,
-              width: 42, cursor: apagandoPdv ? "default" : "pointer",
+              padding: "0 12px", cursor: apagandoPdv ? "default" : "pointer", whiteSpace: "nowrap",
             }}>
             <Icon name="trash" size={16} color={danger} />
+            <span style={{ fontFamily: sans, fontWeight: 700, fontSize: 11.5 }}>
+              {apagandoPdv ? "Excluindo..." : "Excluir último PDV"}
+            </span>
           </button>
         )}
       </div>
@@ -1353,7 +1356,7 @@ function PerdasProtegido({ dataInicial }) {
 }
 
 const ETAPAS_CONFRONTO = [
-  "Carregando o estoque congelado das 23:30...",
+  "Carregando o estoque congelado das 10:00...",
   "Carregando as movimentações do dia...",
   "Preparando o confronto automático...",
 ];
@@ -1420,10 +1423,10 @@ const azulSoft = "#E3ECFB";
 
 // =========================
 // CICLO AUTOMÁTICO DIÁRIO
-// 23:30: congela o estoque esperado do dia (fica disponível como "esperado" do
-// próximo dia, para uso no confronto automático das 23:00 do dia seguinte).
-// O banco executa o ciclo automático. 23:30 congela o estoque esperado;
-// 23:00 do dia seguinte é o horário oficial do confronto. A interface apenas
+// 10:00: congela o estoque esperado do dia (fica disponível como "esperado" do
+// dia atual, para uso no confronto automático das 23:00 do mesmo dia).
+// O banco executa o ciclo automático. 10:00 congela o estoque esperado;
+// 23:00 do mesmo dia é o horário oficial do confronto. A interface apenas
 // consulta os resultados e não executa o confronto manualmente.
 // =========================
 
@@ -1451,14 +1454,14 @@ function mapaPorItens(rows) {
 
 // O banco é a autoridade do ciclo. Estas funções apenas acionam o fechamento
 // caso o cron ainda não tenha feito o trabalho (fallback para navegador).
-async function executarFechamentoDas2330() {
-  const dataAlvo = amanhaStr();
+async function executarFechamentoDas10h() {
+  const dataAlvo = hojeStr();
   const { data: existente, error } = await sb.from("estoque_fechamentos")
     .select("*").eq("data_referencia", dataAlvo).maybeSingle();
   if (error) throw error;
   if (existente && existente.esperado_congelado_em) return existente;
 
-  const esperado = await lerMapaRegistrosPermitidos(hojeStr());
+  const esperado = await lerMapaRegistrosPermitidos(ontemStr());
   const { data, error: erroInsert } = await sb.from("estoque_fechamentos").insert({
     data_referencia: dataAlvo,
     esperado: esperado,
@@ -1475,17 +1478,17 @@ async function executarFechamentoDas2330() {
   return data;
 }
 
-async function executarFechamentoDas10h() {
+async function executarConfrontoDas10h() {
   const dataHoje = hojeStr();
   const { data: ciclo, error: erroCiclo } = await sb.from("estoque_fechamentos")
     .select("*").eq("data_referencia", dataHoje).maybeSingle();
   if (erroCiclo) throw erroCiclo;
   if (!ciclo || !ciclo.esperado_congelado_em) {
-    throw new Error("O estoque esperado das 23:30 de ontem ainda não foi congelado.");
+    throw new Error("O estoque esperado das 10:00 de hoje ainda não foi congelado.");
   }
   if (ciclo.confronto_executado_em) return ciclo;
 
-  // O estoque inicial do dia é SEMPRE o congelamento realizado às 23:30 do dia anterior.
+  // O estoque inicial do dia é SEMPRE o congelamento realizado às 10:00 do dia anterior.
   // Não usa mais uma contagem manual como fonte do estoque inicial.
   const contado = ciclo.esperado || {};
   const esperado = ciclo.esperado || {};
@@ -1547,8 +1550,8 @@ function agendarCicloAutomatico(onResultado) {
     if (cancelado) return;
     try {
       const hora = horaAtualDecimal();
-      if (hora >= 23.5) await executarFechamentoDas2330();
-      // O confronto oficial é executado pelo Supabase às 23:00 do dia seguinte.
+      if (hora >= 10) await executarFechamentoDas10h();
+      // O confronto oficial é executado pelo Supabase às 23:00 do mesmo dia.
       // O navegador não executa mais o antigo fechamento/confronto das 10h.
     } catch (e) {
       console.error("Ciclo automático diário:", e);
@@ -1590,12 +1593,12 @@ function EstoqueEsperadoDia() {
   const calcular = async () => {
     setErro(false);
     try {
-      const emPausa = passouDas2330() || antesDoResetDiario();
+      const emPausa = passouDas10h() || antesDoResetDiario();
       setPausado(emPausa);
 
       if (emPausa) {
         // Garante que o congelamento de hoje já aconteceu (fallback caso o cron não tenha rodado).
-        if (passouDas2330()) await executarFechamentoDas2330();
+        if (passouDas10h()) await executarFechamentoDas10h();
         setResultadoAtual(null);
       } else {
         const novoResultado = await lerMapaRegistrosPermitidos(hojeStr());
@@ -1631,7 +1634,7 @@ function EstoqueEsperadoDia() {
                 width: 7, height: 7, borderRadius: 99, background: "#FF4D4D",
                 boxShadow: "none"
               }} />
-              <span style={{ fontSize: 10.5, fontWeight: 800, letterSpacing: 0.5 }}>ATUALIZAÇÃO AUTOMÁTICA</span>
+              <span style={{ fontSize: 10.5, fontWeight: 800, letterSpacing: 0.5 }}>CONTAGEM AO VIVO</span>
             </span>
           )}
           {pausado
@@ -1669,8 +1672,8 @@ function EstoqueEsperadoDia() {
 
         <div style={{ fontFamily: sans, fontSize: 10.5, color: inkSoft, textAlign: "center", background: "#F7F2EC", borderRadius: 8, padding: "7px 10px" }}>
           {pausado
-            ? "O resultado de hoje já foi congelado às 23:30. O cálculo do novo dia recomeça às 00:01."
-            : "Calculando continuamente até 23:30, quando o resultado do dia é congelado."}
+            ? "O resultado de hoje já foi congelado às 10:00. O cálculo do novo dia recomeça às 00:01."
+            : "Calculando continuamente até 10:00, quando o resultado do dia é congelado."}
         </div>
       </div>
 
@@ -1731,7 +1734,7 @@ function Confronto() {
       </div>
 
       <div style={{ fontFamily: sans, fontSize: 10.5, color: inkSoft, textAlign: "center" }}>
-        O ciclo congela o estoque às 23:30 e realiza o confronto às 23:00 do dia seguinte, considerando as movimentações do dia.
+        O ciclo congela o estoque às 10:00 e realiza o confronto às 23:00 do mesmo dia, considerando as movimentações do dia.
       </div>
     </div>
   );
