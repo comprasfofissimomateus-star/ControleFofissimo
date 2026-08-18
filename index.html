@@ -1573,24 +1573,6 @@ function EstoqueEsperadoDia() {
 
       {congelado && (
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          <button
-            onClick={() => setMostrarCongelado((v) => !v)}
-            style={{
-              display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 4,
-              background: azul, border: "none", color: "#fff", cursor: "pointer",
-              borderRadius: 10, padding: "11px 14px", fontFamily: sans, fontWeight: 800, fontSize: 13.5, textAlign: "center",
-            }}
-          >
-            <span>🔒 {mostrarCongelado ? "Ocultar" : "Ver"} congelamento de estoque</span>
-            <span style={{ fontWeight: 700, fontSize: 11, opacity: 0.9 }}>
-              Congelado em {formatarDataHoraCompleta(congelado.esperado_congelado_em)}
-            </span>
-          </button>
-
-          <div style={{ fontFamily: sans, fontWeight: 800, fontSize: 12.5, color: inkSoft, textAlign: "center", padding: "2px 10px 0" }}>
-            Estoque congelado do dia {formatarData(congelado.data_referencia)}
-          </div>
-
           {mostrarCongelado && (
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               <ListaPorCategoria>
