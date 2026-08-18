@@ -939,7 +939,6 @@ function Estoque({ dataInicial }) {
   const [valores, setValores] = useState(null);
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState(false);
-  const [salvando, setSalvando] = useState(false);
 
   const carregar = async () => {
     setErro(false);
@@ -966,65 +965,7 @@ function Estoque({ dataInicial }) {
     return () => clearInterval(timer);
   }, [data]);
 
-  // Quando não houver uma contagem salva para o dia, o valor inicial vem
-  // diretamente do congelamento das 23:30 do dia anterior. A pessoa pode
-  // alterar cada campo para registrar a contagem física real.
-  const carregarBaseDoCongelamentoAnterior = async () => {
-    const ontem = new Date(`${data}T12:00:00`);
-    ontem.setDate(ontem.getDate() - 1);
-    const anterior = `${ontem.getFullYear()}-${String(ontem.getMonth()+1).padStart(2,"0")}-${String(ontem.getDate()).padStart(2,"0")}`;
-    const { data: fechamento, error } = await sb.from("estoque_fechamentos")
-      .select("esperado, esperado_congelado_em")
-      .eq("data_referencia", data)
-      .not("esperado_congelado_em", "is", null)
-      .maybeSingle();
-    if (error) throw error;
-    return fechamento?.esperado || null;
-  };
-
-  const mudar = async (id, valor) => {
-    const v = Math.max(0, Number.isFinite(Number(valor)) ? Number(valor) : 0);
-    const mapa = { ...(valores || {}), [id]: v };
-    setValores(mapa);
-    setSalvando(true);
-    try {
-      const { error } = await sb.from("estoque_fechamentos")
-        .update({ estoque_inicial_10h: mapa, inicial_10h_congelado_em: new Date().toISOString() })
-        .eq("data_referencia", data);
-      if (error) throw error;
-    } catch (e) {
-      console.error("Salvando estoque inicial:", e);
-      setErro(true);
-    } finally {
-      setSalvando(false);
-    }
-  };
-
-  const iniciarComCongelamento = async () => {
-    try {
-      setCarregando(true);
-      const base = await carregarBaseDoCongelamentoAnterior();
-      if (base) {
-        setValores(base);
-        const { error } = await sb.from("estoque_fechamentos")
-          .update({ estoque_inicial_10h: base, inicial_10h_congelado_em: new Date().toISOString() })
-          .eq("data_referencia", data);
-        if (error) throw error;
-      }
-    } catch (e) {
-      console.error("Carregando congelamento anterior:", e);
-      setErro(true);
-    } finally {
-      setCarregando(false);
-    }
-  };
-
-  useEffect(() => {
-    if (!carregando && !erro && !valores) iniciarComCongelamento();
-  }, [carregando, erro, valores, data]);
-
   const mapa = valores || Object.fromEntries(ITEMS.map((i) => [i.id, 0]));
-  const bloqueado = dataBloqueada(data);
 
   return (
     <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 10 }}>
@@ -1035,12 +976,11 @@ function Estoque({ dataInicial }) {
         padding: "10px 14px", textAlign: "center", fontFamily: sans,
         fontWeight: 800, fontSize: 12.5, color: azul
       }}>
-        ❄️ Estoque inicial começa com o congelamento das 23:30 do dia anterior
+        ❄️ Estoque inicial puxado automaticamente do congelamento anterior
       </div>
 
-      {salvando && <div style={{ fontFamily: sans, fontSize: 11, color: inkSoft, textAlign: "center" }}>Salvando...</div>}
       {carregando && <div style={{ fontFamily: sans, fontSize: 12, color: inkSoft, textAlign: "center" }}>Carregando estoque inicial...</div>}
-      {erro && <div style={{ fontFamily: sans, fontSize: 11.5, color: danger, textAlign: "center" }}>Não foi possível carregar ou salvar o estoque inicial.</div>}
+      {erro && <div style={{ fontFamily: sans, fontSize: 11.5, color: danger, textAlign: "center" }}>Não foi possível carregar o estoque inicial do Supabase.</div>}
 
       {!carregando && !erro && (
         <ListaPorCategoria>
@@ -1049,26 +989,13 @@ function Estoque({ dataInicial }) {
             return (
               <div key={item.id} style={{
                 background: card, border: `1px solid ${line}`, borderRadius: 10,
-                padding: "10px 14px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10
+                padding: "10px 14px", display: "flex", justifyContent: "space-between", alignItems: "center"
               }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                   <ItemIcon id={item.id} />
                   <span style={{ fontFamily: sans, fontWeight: 600, fontSize: 14, color: ink }}>{item.nome}</span>
                 </div>
-                <input
-                  type="number"
-                  min="0"
-                  step="1"
-                  inputMode="numeric"
-                  value={v}
-                  disabled={bloqueado}
-                  onChange={(e) => mudar(item.id, e.target.value)}
-                  style={{
-                    width: 72, boxSizing: "border-box", padding: "8px 8px", textAlign: "center",
-                    border: `1px solid ${line}`, borderRadius: 8, background: bloqueado ? "#f0ece8" : "#fff",
-                    color: ink, fontFamily: sans, fontWeight: 800, fontSize: 15, outline: "none"
-                  }}
-                />
+                <span style={{ fontFamily: sans, fontWeight: 800, fontSize: 16, color: v > 0 ? good : v === 0 ? amarelo : danger }}>{v}</span>
               </div>
             );
           }}
@@ -1077,6 +1004,7 @@ function Estoque({ dataInicial }) {
     </div>
   );
 }
+
 function Entradas({ dataInicial }) {
   const { data, setData, valores, setValores, carregando, erro } = useDiaCarregado("entrada", dataInicial);
   const bloqueado = dataBloqueada(data);
@@ -1118,6 +1046,64 @@ function Entradas({ dataInicial }) {
       )}
     </div>
   );
+}
+
+// Horário oficial de Brasília obtido pela internet. Se a consulta falhar,
+// o sistema mantém Vendas bloqueada em vez de confiar no relógio do aparelho.
+async function obterHorarioInternetSaoPaulo() {
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 5000);
+    const resp = await fetch("https://worldtimeapi.org/api/timezone/America/Sao_Paulo", { cache: "no-store", signal: controller.signal });
+    clearTimeout(timer);
+    if (!resp.ok) throw new Error("Falha ao consultar horário da internet");
+    const dados = await resp.json();
+    const dt = new Date(dados.datetime);
+    if (Number.isNaN(dt.getTime())) throw new Error("Horário inválido");
+    return dt;
+  } catch (e) {
+    console.error("Horário da internet:", e);
+    return null;
+  }
+}
+
+function horarioVendasAberto(data) {
+  if (!data) return false;
+  // O horário vem da API da internet. Extraímos a hora do próprio campo
+  // datetime retornado pela API para não depender do fuso/relógio do aparelho.
+  const hora = Number(String(data.datetime || "").match(/T(\d{2}):/)?.[1]);
+  return Number.isFinite(hora) && hora >= 6 && hora < 10;
+}
+
+function VendasBloqueadas({ carregando = false }) {
+  return (
+    <div style={{ flex:1, display:"flex", alignItems:"center", justifyContent:"center", padding:20, boxSizing:"border-box" }}>
+      <div style={{ width:"100%", background:azulSoft, border:`1px solid ${azul}`, borderRadius:14, padding:"20px 16px", textAlign:"center", fontFamily:sans }}>
+        <div style={{ fontSize:30, marginBottom:8 }}>🔒</div>
+        <div style={{ fontWeight:800, fontSize:15, color:azul }}>Funcionamento de 6 as 10h da manha</div>
+        {carregando && <div style={{ marginTop:7, fontSize:10.5, color:inkSoft }}>Consultando horário oficial...</div>}
+      </div>
+    </div>
+  );
+}
+
+function VendasProtegido({ dataInicial }) {
+  const [status, setStatus] = useState("consultando");
+
+  const verificarHorario = async () => {
+    setStatus("consultando");
+    const agora = await obterHorarioInternetSaoPaulo();
+    setStatus(agora && horarioVendasAberto(agora) ? "aberto" : "fechado");
+  };
+
+  useEffect(() => {
+    verificarHorario();
+    const timer = setInterval(verificarHorario, 60000);
+    return () => clearInterval(timer);
+  }, []);
+
+  if (status !== "aberto") return <VendasBloqueadas carregando={status === "consultando"} />;
+  return <Financeiro dataInicial={dataInicial} />;
 }
 
 function Financeiro({ dataInicial }) {
@@ -2140,7 +2126,13 @@ function App() {
         <div style={{width:390,maxWidth:"100%",background:card,borderRadius:20,border:`1px solid ${line}`,boxShadow:"0 16px 40px rgba(59,42,30,0.18)",overflow:"hidden",display:"flex",flexDirection:"column",height:720,flexShrink:0}}>
           <div style={{flex:1,display:"flex",overflow:"hidden"}}>
             <div style={{width:96,flexShrink:0,background:accentSoft,padding:"14px 8px",display:"flex",flexDirection:"column",gap:10,overflowY:"auto"}}>
-              {tabsPermitidas.map(t => <button key={t.id} onClick={()=>setTab(t.id)} style={{border:tab===t.id?"1px solid #5A341C":`1.5px solid ${line}`,borderRadius:14,padding:"12px 4px",cursor:"pointer",aspectRatio:"1 / 1",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:5,background:tab===t.id?"linear-gradient(135deg,#5A341C,#7A4A22)":card,color:tab===t.id?"#fff":accent,boxShadow:tab===t.id?"0 4px 10px rgba(90,52,28,0.45)":"0 1px 3px rgba(59,42,30,0.08)"}}>
+              {tabsPermitidas.map(t => <button key={t.id} onClick={async ()=>{
+                if (t.id === "financeiro") {
+                  setTab("financeiro");
+                  return;
+                }
+                setTab(t.id);
+              }} style={{border:tab===t.id?"1px solid #5A341C":`1.5px solid ${line}`,borderRadius:14,padding:"12px 4px",cursor:"pointer",aspectRatio:"1 / 1",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:5,background:tab===t.id?"linear-gradient(135deg,#5A341C,#7A4A22)":card,color:tab===t.id?"#fff":accent,boxShadow:tab===t.id?"0 4px 10px rgba(90,52,28,0.45)":"0 1px 3px rgba(59,42,30,0.08)"}}>
                 <Icon name={t.icone} size={18} color={tab===t.id?"#fff":accent} />
                 <span style={{fontFamily:sansArredondado,fontWeight:800,fontSize:13.5,lineHeight:1.2,textAlign:"center"}}>{t.label}</span>
               </button>)}
@@ -2160,7 +2152,7 @@ function App() {
                 {tab==="estoque" && <Estoque dataInicial={hojeStr()} />}
                 {tab==="entradas" && <EntradasProtegido dataInicial={hojeStr()} />}
                 {tab==="perdas" && <PerdasProtegido dataInicial={hojeStr()} />}
-                {tab==="financeiro" && <Financeiro dataInicial={hojeStr()} />}
+                {tab==="financeiro" && <VendasProtegido dataInicial={hojeStr()} />}
                 {tab==="confronto" && <Confronto />}
                 {tab==="historico" && <HistoricoAlteracoes />}
               </div>
