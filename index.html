@@ -1569,10 +1569,49 @@ function EstoqueEsperadoDia() {
     </div>
   );
 }
+function EstoqueCongeladoConfronto() {
+  const [congelado, setCongelado] = useState(null);
+  const [carregando, setCarregando] = useState(true);
+  const [erro, setErro] = useState(false);
+
+  useEffect(() => {
+    let ativo = true;
+    const buscar = async () => {
+      try {
+        const { data, error } = await sb.from("estoque_fechamentos")
+          .select("data_referencia, esperado_congelado_em, esperado")
+          .eq("data_referencia", hojeStr())
+          .not("esperado_congelado_em", "is", null)
+          .maybeSingle();
+        if (error) throw error;
+        if (ativo) { setCongelado(data || null); setErro(false); setCarregando(false); }
+      } catch (e) {
+        console.error(e);
+        if (ativo) { setErro(true); setCarregando(false); }
+      }
+    };
+    buscar();
+    const timer = setInterval(buscar, 10000);
+    return () => { ativo = false; clearInterval(timer); };
+  }, []);
+
+  if (carregando) return null;
+  if (erro) return <div style={{ fontFamily: sans, fontSize: 11.5, color: danger, textAlign: "center" }}>Não foi possível carregar o estoque congelado.</div>;
+  if (!congelado) return null;
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 6, background: azulSoft, border: `1px solid ${azul}`, borderRadius: 10, padding: "11px 14px", textAlign: "center" }}>
+      <div style={{ fontFamily: sans, fontWeight: 800, fontSize: 13.5, color: azul }}>🔒 Estoque congelado do dia {formatarData(congelado.data_referencia)}</div>
+      <div style={{ fontFamily: sans, fontSize: 11, color: inkSoft }}>Congelado às 23:30 de {formatarData(ontemStr())}</div>
+    </div>
+  );
+}
+
 function Confronto() {
   return (
     <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 12 }}>
       <EstoqueEsperadoDia />
+      <EstoqueCongeladoConfronto />
 
       <div style={{ height: 1, background: line, margin: "2px 0" }} />
 
