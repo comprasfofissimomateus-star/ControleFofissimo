@@ -970,12 +970,29 @@ function Estoque({ dataInicial }) {
   const carregar = async () => {
     setErro(false);
     try {
-      const { data: fechamento, error } = await sb.from("estoque_fechamentos")
-        .select("data_referencia, estoque_inicial_10h, inicial_10h_congelado_em")
-        .eq("data_referencia", data)
-        .maybeSingle();
-      if (error) throw error;
-      setValores(fechamento?.estoque_inicial_10h || null);
+      // Primeiro tenta o valor editável salvo para o dia. Se não existir,
+      // puxa automaticamente o congelamento do dia anterior.
+      const { data: registrosIniciais, error: erroInicial } = await sb.from("registros")
+        .select("item_id, quantidade")
+        .eq("tipo", "contagem")
+        .eq("data", data);
+      if (erroInicial) throw erroInicial;
+
+      let mapa = null;
+      if ((registrosIniciais || []).length > 0) {
+        mapa = mapaPorItens(registrosIniciais);
+      } else {
+        const d = new Date(`${data}T12:00:00`);
+        d.setDate(d.getDate() - 1);
+        const dataAnterior = dataLocalStr(d);
+        const { data: fechamento, error } = await sb.from("estoque_fechamentos")
+          .select("data_referencia, esperado, esperado_congelado_em")
+          .eq("data_referencia", dataAnterior)
+          .maybeSingle();
+        if (error) throw error;
+        mapa = fechamento?.esperado || null;
+      }
+      setValores(mapa);
     } catch (e) {
       console.error("Estoque inicial do dia:", e);
       setErro(true);
@@ -993,6 +1010,14 @@ function Estoque({ dataInicial }) {
   }, [data]);
 
   const mapa = valores || Object.fromEntries(ITEMS.map((i) => [i.id, 0]));
+  const bloqueado = dataBloqueada(data);
+
+  const mudar = async (id, v) => {
+    if (bloqueado) return;
+    const numero = Math.max(0, parseInt(String(v || "0"), 10) || 0);
+    setValores(prev => ({ ...(prev || {}), [id]: numero }));
+    await salvarRegistro({ item_id: id, data, tipo: "contagem", quantidade: numero });
+  };
 
   return (
     <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 10 }}>
@@ -1003,7 +1028,7 @@ function Estoque({ dataInicial }) {
         padding: "10px 14px", textAlign: "center", fontFamily: sans,
         fontWeight: 800, fontSize: 12.5, color: azul
       }}>
-        ❄️ Estoque inicial puxado automaticamente do congelamento anterior
+        ❄️ Estoque inicial puxado do congelamento do dia anterior — você pode editar as quantidades
       </div>
 
       {carregando && <div style={{ fontFamily: sans, fontSize: 12, color: inkSoft, textAlign: "center" }}>Carregando estoque inicial...</div>}
@@ -1016,13 +1041,24 @@ function Estoque({ dataInicial }) {
             return (
               <div key={item.id} style={{
                 background: card, border: `1px solid ${line}`, borderRadius: 10,
-                padding: "10px 14px", display: "flex", justifyContent: "space-between", alignItems: "center"
+                padding: "10px 14px", display: "flex", justifyContent: "space-between", alignItems: "center",
+                opacity: bloqueado ? 0.6 : 1
               }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                   <ItemIcon id={item.id} />
                   <span style={{ fontFamily: sans, fontWeight: 600, fontSize: 14, color: ink }}>{item.nome}</span>
                 </div>
-                <span style={{ fontFamily: sans, fontWeight: 800, fontSize: 16, color: v > 0 ? good : v === 0 ? amarelo : danger }}>{v}</span>
+                <input
+                  type="number" min="0" inputMode="numeric" value={v} disabled={bloqueado}
+                  onChange={(e) => setValores(prev => ({ ...(prev || {}), [item.id]: e.target.value }))}
+                  onBlur={(e) => mudar(item.id, e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
+                  style={{
+                    width: 72, textAlign: "center", fontFamily: sans, fontWeight: 800, fontSize: 16,
+                    border: `1px solid ${line}`, borderRadius: 6, padding: "7px 4px",
+                    color: ink, background: bloqueado ? "#f3f3f3" : "#fff"
+                  }}
+                />
               </div>
             );
           }}
@@ -1359,9 +1395,9 @@ function PerdasProtegido({ dataInicial }) {
 }
 
 const ETAPAS_CONFRONTO = [
-  "Carregando o estoque congelado das 10:00...",
-  "Carregando as movimentações do dia...",
-  "Preparando o confronto automático...",
+  "Carregando o estoque congelado das 23:30...",
+  "Carregando o estoque inicial e as vendas do dia...",
+  "Preparando o confronto das 10:00...",
 ];
 
 function nomeDoItem(id) {
@@ -1426,26 +1462,34 @@ const azulSoft = "#E3ECFB";
 
 // =========================
 // CICLO AUTOMÁTICO DIÁRIO
-// 10:00: congela o estoque esperado do dia (fica disponível como "esperado" do
-// dia atual, para uso no confronto automático das 10:05 do mesmo dia).
-// O banco executa o ciclo automático. 10:00 congela o estoque esperado;
-// 10:05 do mesmo dia é o horário oficial do confronto. A interface apenas
-// consulta os resultados e não executa o confronto manualmente.
+// 23:30: congela o estoque do dia usando exclusivamente:
+// estoque inicial do dia + entradas - perdas. Vendas são desconsideradas.
+// No dia seguinte, às 10:00, o congelamento anterior é confrontado com:
+// estoque inicial do dia - vendas do dia.
 // =========================
 
 async function lerMapaRegistrosPermitidos(data) {
   const mapa = Object.fromEntries(ITEMS.map((i) => [i.id, 0]));
-  const [inicial, entradas, perdas, vendas] = await Promise.all([
+  const [inicial, entradas, perdas] = await Promise.all([
     sb.from("registros").select("item_id, quantidade").eq("tipo", "contagem").eq("data", data),
     sb.from("registros").select("item_id, quantidade").eq("tipo", "entrada").eq("data", data),
     sb.from("registros").select("item_id, quantidade").eq("tipo", "perda").eq("data", data),
-    sb.from("registros").select("item_id, quantidade").eq("tipo", "venda").eq("data", data),
   ]);
-  if (inicial.error || entradas.error || perdas.error || vendas.error) throw new Error("Não foi possível ler os registros do dia.");
+  if (inicial.error || entradas.error || perdas.error) throw new Error("Não foi possível ler os registros do dia.");
   (inicial.data || []).forEach(r => { mapa[r.item_id] += Number(r.quantidade) || 0; });
   (entradas.data || []).forEach(r => { mapa[r.item_id] += Number(r.quantidade) || 0; });
   (perdas.data || []).forEach(r => { mapa[r.item_id] -= Number(r.quantidade) || 0; });
-  (vendas.data || []).forEach(r => { mapa[r.item_id] -= Number(r.quantidade) || 0; });
+  return mapa;
+}
+
+async function lerMapaVendas(data) {
+  const mapa = Object.fromEntries(ITEMS.map((i) => [i.id, 0]));
+  const { data: rows, error } = await sb.from("registros")
+    .select("item_id, quantidade")
+    .eq("tipo", "venda")
+    .eq("data", data);
+  if (error) throw error;
+  (rows || []).forEach(r => { mapa[r.item_id] += Number(r.quantidade) || 0; });
   return mapa;
 }
 
@@ -1455,24 +1499,40 @@ function mapaPorItens(rows) {
   return mapa;
 }
 
-// O banco é a autoridade do ciclo. Estas funções apenas acionam o fechamento
-// caso o cron ainda não tenha feito o trabalho (fallback para navegador).
-async function executarFechamentoDas10h() {
+// O banco é a autoridade do ciclo. Esta função também funciona como fallback
+// caso o cron do Supabase não tenha feito o congelamento das 23:30.
+async function executarCongelamentoDas23h30() {
   const dataAlvo = hojeStr();
   const { data: existente, error } = await sb.from("estoque_fechamentos")
     .select("*").eq("data_referencia", dataAlvo).maybeSingle();
   if (error) throw error;
-  if (existente && existente.esperado_congelado_em) return existente;
 
-  const esperado = await lerMapaRegistrosPermitidos(ontemStr());
-  const { data, error: erroInsert } = await sb.from("estoque_fechamentos").insert({
+  // Antes de 23:30 não congela. Depois de 23:30, recalcula apenas se ainda
+  // não houver um congelamento registrado para o dia.
+  if (horaAtualDecimal() < 23.5) return existente || null;
+  if (existente && existente.esperado_congelado_em) {
+    const congeladoEm = new Date(existente.esperado_congelado_em);
+    const horaCongelado = congeladoEm.getHours() + congeladoEm.getMinutes() / 60;
+    if (horaCongelado >= 23.5) return existente;
+  }
+
+  const esperado = await lerMapaRegistrosPermitidos(dataAlvo);
+  const payload = {
     data_referencia: dataAlvo,
-    esperado: esperado,
+    esperado,
     esperado_congelado_em: new Date().toISOString()
-  }).select("*").single();
+  };
 
+  if (existente) {
+    const { data, error: erroUpdate } = await sb.from("estoque_fechamentos")
+      .update(payload).eq("data_referencia", dataAlvo).select("*").single();
+    if (erroUpdate) throw erroUpdate;
+    return data;
+  }
+
+  const { data, error: erroInsert } = await sb.from("estoque_fechamentos")
+    .insert(payload).select("*").single();
   if (erroInsert) {
-    // Se outra execução acabou de congelar, apenas reutiliza o registro.
     const { data: novamente } = await sb.from("estoque_fechamentos")
       .select("*").eq("data_referencia", dataAlvo).maybeSingle();
     if (novamente) return novamente;
@@ -1483,21 +1543,33 @@ async function executarFechamentoDas10h() {
 
 async function executarConfrontoDas10h() {
   const dataHoje = hojeStr();
-  const { data: ciclo, error: erroCiclo } = await sb.from("estoque_fechamentos")
-    .select("*").eq("data_referencia", dataHoje).maybeSingle();
-  if (erroCiclo) throw erroCiclo;
-  if (!ciclo || !ciclo.esperado_congelado_em) {
-    throw new Error("O estoque esperado das 10:00 de hoje ainda não foi congelado.");
-  }
-  if (ciclo.confronto_executado_em) return ciclo;
+  if (horaAtualDecimal() < 10) return null;
 
-  // O estoque inicial do dia é SEMPRE o congelamento realizado às 10:00 do dia anterior.
-  // Não usa mais uma contagem manual como fonte do estoque inicial.
-  const contado = ciclo.esperado || {};
-  const esperado = ciclo.esperado || {};
+  const dataCongelamento = ontemStr();
+  const { data: congelamento, error: erroCongelamento } = await sb.from("estoque_fechamentos")
+    .select("*").eq("data_referencia", dataCongelamento).maybeSingle();
+  if (erroCongelamento) throw erroCongelamento;
+  if (!congelamento || !congelamento.esperado_congelado_em) {
+    throw new Error("O estoque congelado de ontem às 23:30 ainda não está disponível.");
+  }
+
+  // Evita executar o mesmo confronto mais de uma vez.
+  // O valor atual é: estoque inicial do dia - vendas do dia.
+  // O estoque inicial pode ter sido editado pelo usuário; se ainda não houver
+  // registro manual, usa o congelamento de ontem como valor inicial.
+  const { data: registrosIniciais, error: erroInicial } = await sb.from("registros")
+    .select("item_id, quantidade").eq("tipo", "contagem").eq("data", dataHoje);
+  if (erroInicial) throw erroInicial;
+  const inicialHoje = mapaPorItens(registrosIniciais);
+  const vendasHoje = await lerMapaVendas(dataHoje);
+
   const linhas = ITEMS.map(item => {
-    const esperadoV = Number(esperado[item.id] || 0);
-    const contadoV = Number(contado[item.id] || 0);
+    const esperadoV = Number((congelamento.esperado || {})[item.id] || 0);
+    const inicialV = (registrosIniciais || []).some(r => r.item_id === item.id)
+      ? Number(inicialHoje[item.id] || 0)
+      : Number((congelamento.esperado || {})[item.id] || 0);
+    const vendasV = Number(vendasHoje[item.id] || 0);
+    const contadoV = inicialV - vendasV;
     const diferenca = contadoV - esperadoV;
     return {
       data_referencia: dataHoje,
@@ -1513,17 +1585,17 @@ async function executarConfrontoDas10h() {
   const { error: erroInsert } = await sb.from("confrontos").insert(linhas);
   if (erroInsert) throw erroInsert;
 
-  // Registro explícito no Histórico do sistema.
   const historico = ITEMS.map(item => {
     const l = linhas.find(x => x.item_id === item.id);
+    const inicial = (registrosIniciais || []).find(r => r.item_id === item.id);
     return {
       data_hora: l.executado_em,
-      item_id: item.id,
-      item_nome: nomeDoItem(item.id),
-      inicio_dia: l.estoque_contado,
+      item_id: l.item_id,
+      item_nome: nomeDoItem(l.item_id),
+      inicio_dia: inicial ? Number(inicial.quantidade) || 0 : Number((congelamento.esperado || {})[item.id] || 0),
       entradas: 0,
       perdas: 0,
-      vendas: 0,
+      vendas: Number(vendasHoje[item.id] || 0),
       esperado: l.estoque_esperado,
       contado: l.estoque_contado,
       diferenca: l.diferenca,
@@ -1534,15 +1606,10 @@ async function executarConfrontoDas10h() {
   if (erroHistorico) throw erroHistorico;
 
   const { data: atualizado, error: erroUpdate } = await sb.from("estoque_fechamentos")
-    .update({
-      estoque_inicial_10h: contado,
-      inicial_10h_congelado_em: new Date().toISOString(),
-      confronto_executado_em: new Date().toISOString()
-    })
-    .eq("data_referencia", dataHoje)
+    .update({ confronto_executado_em: new Date().toISOString() })
+    .eq("data_referencia", dataCongelamento)
     .is("confronto_executado_em", null)
     .select("*").single();
-
   if (erroUpdate) throw erroUpdate;
   return atualizado;
 }
@@ -1553,9 +1620,8 @@ function agendarCicloAutomatico(onResultado) {
     if (cancelado) return;
     try {
       const hora = horaAtualDecimal();
-      if (hora >= 10) await executarFechamentoDas10h();
-      // O confronto oficial é executado pelo Supabase às 10:05 do mesmo dia.
-      // O navegador não executa mais o antigo fechamento/confronto das 10h.
+      if (hora >= 23.5) await executarCongelamentoDas23h30();
+      if (hora >= 10 && hora < 23.5) await executarConfrontoDas10h();
     } catch (e) {
       console.error("Ciclo automático diário:", e);
     }
@@ -1634,7 +1700,7 @@ function EstoqueEsperadoDia() {
           )}
           {pausado
             ? "Aguardando 00:01 para iniciar o cálculo do novo dia"
-            : `Estoque esperado — hoje (${formatarData(hojeStr())}), atualizado em tempo real`}
+            : `Estoque para congelamento — hoje (${formatarData(hojeStr())}), atualizado em tempo real`}
         </div>
 
         {erro && <div style={{ fontFamily: sans, fontSize: 11.5, color: danger, textAlign: "center" }}>
@@ -1659,7 +1725,7 @@ function EstoqueEsperadoDia() {
             <div className="placeholder-congelando">
               <span className="placeholder-congelando-icone">❄️</span>
               <span style={{ fontFamily: sans, fontWeight: 800, fontSize: 13, position: "relative", zIndex: 1 }}>
-                Esperando fechamento de estoque para congelar
+                Esperando 23:30 para congelar o estoque
               </span>
             </div>
           </div>
@@ -1667,8 +1733,8 @@ function EstoqueEsperadoDia() {
 
         <div style={{ fontFamily: sans, fontSize: 10.5, color: inkSoft, textAlign: "center", background: "#F7F2EC", borderRadius: 8, padding: "7px 10px" }}>
           {pausado
-            ? "A contagem de estoque permanece ativa continuamente."
-            : "Contagem de estoque ativa continuamente, com atualização em tempo real."}
+            ? "O cálculo permanece ativo continuamente."
+            : "Cálculo ativo continuamente. O congelamento oficial ocorre às 23:30."}
         </div>
       </div>
 
@@ -1701,7 +1767,7 @@ function EstoqueEsperadoDia() {
               </ListaPorCategoria>
 
               <div style={{ fontFamily: sans, fontSize: 10.5, color: azul, textAlign: "center", background: azulSoft, borderRadius: 8, padding: "7px 10px" }}>
-                Este congelamento fica salvo no Supabase e será usado na fórmula de confronto do ciclo seguinte.
+                Este congelamento fica salvo no Supabase às 23:30 e será confrontado às 10:00 do dia seguinte.
               </div>
             </div>
           )}
@@ -2071,7 +2137,7 @@ function Login({ onLogin }) {
 
 function InstrucoesInicio({ permissoes }) {
   const instrucoes = {
-    estoque: ["Estoque inicial do dia", <>Quantidade disponível de cada item no início da operação <b>(deve ser digitada manualmente todos os dias)</b>.</>],
+    estoque: ["Estoque inicial do dia", <>Quantidade disponível de cada item no início da operação <b>(é puxada automaticamente do congelamento do dia anterior e pode ser editada)</b>.</>],
     entradas: ["Entradas", <>Quantidade de cada item que chegou no estoque naquele dia <b>(deve ser digitada manualmente nos dias que chegarem itens no estoque)</b>.<div style={{marginTop:6,fontWeight:800,color:danger}}>É NECESSÁRIO ANEXO DE COMPROVANTE PARA CONFIRMAR ENTRADAS.</div></>],
     perdas: ["Perdas", <>Todos os itens do estoque que estragarem, sumirem ou não estiverem em condições de uso e forem descartados devem ser adicionados manualmente aqui.</>],
     financeiro: ["Vendas", <>As vendas do dia só podem ser importadas diretamente do PDV, <b>não podendo ser digitadas manualmente</b>.</>],
