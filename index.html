@@ -1517,6 +1517,27 @@ function EstoqueEsperadoDia() {
                 Esperando fechamento de estoque para congelar
               </span>
             </div>
+
+            {congelado && (
+              <button
+                onClick={() => setMostrarCongelado((v) => !v)}
+                style={{
+                  width: "100%",
+                  display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 4,
+                  background: "linear-gradient(180deg, #3B82F6 0%, #2563EB 100%)",
+                  border: "1px solid #93C5FD",
+                  boxShadow: "0 2px 8px rgba(37,99,235,0.22), inset 0 1px 0 rgba(255,255,255,0.35)",
+                  color: "#fff", cursor: "pointer",
+                  borderRadius: 10, padding: "11px 14px", fontFamily: sans,
+                  fontWeight: 800, fontSize: 13.5, textAlign: "center",
+                }}
+              >
+                <span>❄️ Estoque salvo de ontem</span>
+                <span style={{ fontWeight: 700, fontSize: 11, opacity: 0.92 }}>
+                  Dia {formatarData(congelado.data_referencia)}
+                </span>
+              </button>
+            )}
           </div>
         )}
 
