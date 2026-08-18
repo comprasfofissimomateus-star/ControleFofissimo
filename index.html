@@ -1430,8 +1430,12 @@ function EstoqueEsperadoDia() {
   const [erro, setErro] = useState(false);
 
   const buscarUltimoCongelado = async () => {
+    // O fechamento das 23:30 de ontem fica registrado como referência para HOJE.
+    // Buscamos diretamente a data de hoje para não depender do último registro geral.
+    const dataHoje = hojeStr();
     const { data, error } = await sb.from("estoque_fechamentos")
       .select("*")
+      .eq("data_referencia", dataHoje)
       .not("esperado_congelado_em", "is", null)
       .order("esperado_congelado_em", { ascending: false })
       .limit(1)
@@ -1518,27 +1522,30 @@ function EstoqueEsperadoDia() {
               </span>
             </div>
 
-            {congelado && (
-              <button
-                onClick={() => setMostrarCongelado((v) => !v)}
-                style={{
-                  width: "100%",
-                  display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 4,
-                  background: "linear-gradient(180deg, #3B82F6 0%, #2563EB 100%)",
-                  border: "1px solid #93C5FD",
-                  boxShadow: "0 2px 8px rgba(37,99,235,0.22), inset 0 1px 0 rgba(255,255,255,0.35)",
-                  color: "#fff", cursor: "pointer",
-                  borderRadius: 10, padding: "11px 14px", fontFamily: sans,
-                  fontWeight: 800, fontSize: 13.5, textAlign: "center",
-                }}
-              >
-                <span>❄️ Estoque salvo de ontem</span>
-                <span style={{ fontWeight: 700, fontSize: 11, opacity: 0.92 }}>
-                  Dia {formatarData(congelado.data_referencia)}
-                </span>
-              </button>
-            )}
+
           </div>
+        )}
+
+        {congelado && (
+          <button
+            onClick={() => setMostrarCongelado((v) => !v)}
+            style={{
+              width: "100%",
+              display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 4,
+              background: "linear-gradient(180deg, #3B82F6 0%, #2563EB 100%)",
+              border: "1px solid #93C5FD",
+              boxShadow: "0 2px 8px rgba(37,99,235,0.22), inset 0 1px 0 rgba(255,255,255,0.35)",
+              color: "#fff", cursor: "pointer",
+              borderRadius: 10, padding: "11px 14px", fontFamily: sans,
+              fontWeight: 800, fontSize: 13.5, textAlign: "center",
+              marginTop: 0,
+            }}
+          >
+            <span>❄️ Estoque salvo de ontem</span>
+            <span style={{ fontWeight: 700, fontSize: 11, opacity: 0.92 }}>
+              Dia {ontemStr()}
+            </span>
+          </button>
         )}
 
         <div style={{ fontFamily: sans, fontSize: 10.5, color: inkSoft, textAlign: "center", background: "#F7F2EC", borderRadius: 8, padding: "7px 10px" }}>
