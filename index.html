@@ -1455,7 +1455,13 @@ function EstoqueEsperadoDia() {
         setResultadoAtual(prev => mapasIguais(prev, novoResultado) ? prev : novoResultado);
       }
 
-      const novoCongelado = await buscarUltimoCongelado();
+      const dataHoje = hojeStr();
+      const { data: congelamentoHoje, error: erroCongelamentoHoje } = await sb.from("estoque_fechamentos")
+        .select("*").eq("data_referencia", dataHoje).maybeSingle();
+      if (erroCongelamentoHoje) throw erroCongelamentoHoje;
+      const novoCongelado = congelamentoHoje && congelamentoHoje.esperado_congelado_em
+        ? congelamentoHoje
+        : await buscarUltimoCongelado();
       setCongelado(prev => JSON.stringify(prev) === JSON.stringify(novoCongelado) ? prev : novoCongelado);
     } catch (e) {
       console.error(e);
@@ -1514,7 +1520,7 @@ function EstoqueEsperadoDia() {
             <div className="placeholder-congelando">
               <span className="placeholder-congelando-icone">❄️</span>
               <span style={{ fontFamily: sans, fontWeight: 800, fontSize: 13, position: "relative", zIndex: 1 }}>
-                Esperando fechamento de estoque para congelar
+                Estoque de hoje será congelado às 23:30
               </span>
             </div>
           </div>
@@ -1915,7 +1921,7 @@ function InstrucoesInicio({ permissoes }) {
   const instrucoes = {
     estoque: ["Estoque inicial do dia", <>Quantidade disponível de cada item no início da operação <b>(deve ser digitada manualmente todos os dias)</b>.</>],
     entradas: ["Entradas", <>Quantidade de cada item que chegou no estoque naquele dia <b>(deve ser digitada manualmente nos dias que chegarem itens no estoque)</b>.<div style={{marginTop:6,fontWeight:800,color:danger}}>É NECESSÁRIO ANEXO DE COMPROVANTE PARA CONFIRMAR ENTRADAS.</div></>],
-    perdas: ["Perdas", <>Todos os itens fora da condição de uso ou venda devem ser adicionados manualmente aqui.</>],
+    perdas: ["Perdas", <>Todos os itens do estoque que estragarem, sumirem ou não estiverem em condições de uso e forem descartados devem ser adicionados manualmente aqui.</>],
     financeiro: ["Vendas", <>As vendas do dia só podem ser importadas diretamente do PDV, <b>não podendo ser digitadas manualmente</b>.</>],
     historico: ["Histórico", <>Consulte as alterações registradas no sistema para acompanhar os lançamentos realizados.</>]
   };
