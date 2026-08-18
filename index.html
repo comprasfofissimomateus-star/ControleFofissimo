@@ -1161,7 +1161,7 @@ function Financeiro({ dataInicial }) {
   const importarArquivo = async (e) => {
     const file = e.target.files[0];
     e.target.value = "";
-    if (!file || bloqueado) return;
+    if (!file) return;
     setImportando(true);
     setResumoImport(null);
     try {
@@ -1265,14 +1265,14 @@ function Financeiro({ dataInicial }) {
 
       <input ref={fileInputRef} type="file" accept=".xlsx,.xls" onChange={importarArquivo} style={{ display: "none" }} />
       <div style={{ display: "flex", gap: 8 }}>
-        <button onClick={() => fileInputRef.current.click()} disabled={bloqueado || importando}
+        <button onClick={() => fileInputRef.current.click()} disabled={importando}
           style={{
             flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
-            background: bloqueado ? accentSoft : accent, color: bloqueado ? inkSoft : "#fff",
-            border: "none", borderRadius: 10, padding: "11px 0", cursor: bloqueado || importando ? "default" : "pointer",
+            background: accent, color: "#fff",
+            border: "none", borderRadius: 10, padding: "11px 0", cursor: importando ? "default" : "pointer",
             fontFamily: sans, fontWeight: 700, fontSize: 13.5,
           }}>
-          <Icon name="paperclip" size={15} color={bloqueado ? inkSoft : "#fff"} />
+          <Icon name="paperclip" size={15} color="#fff" />
           {importando ? "Importando..." : "Importar PDV"}
         </button>
         {ultimoPdv && (
