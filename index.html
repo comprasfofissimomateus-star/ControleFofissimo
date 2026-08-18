@@ -1058,29 +1058,17 @@ async function obterHorarioInternetSaoPaulo() {
     clearTimeout(timer);
     if (!resp.ok) throw new Error("Falha ao consultar horário da internet");
     const dados = await resp.json();
-    const datetime = String(dados.datetime || "");
-    if (!/^\d{4}-\d{2}-\d{2}T\d{2}:/.test(datetime)) throw new Error("Horário inválido");
-    return datetime;
+    const dt = new Date(dados.datetime);
+    if (Number.isNaN(dt.getTime())) throw new Error("Horário inválido");
+    return dt;
   } catch (e) {
     console.error("Horário da internet:", e);
     return null;
   }
 }
 
-function horarioVendasAberto(datetime) {
-  if (!datetime) return false;
-  // A hora é extraída diretamente do datetime fornecido pela internet,
-  // sem depender do fuso ou relógio do aparelho.
-  const hora = Number(String(datetime).match(/T(\d{2}):/)?.[1]);
-  return Number.isFinite(hora) && hora >= 6 && hora < 10;
-}
-
-function ontemDaDataInternet(datetime) {
-  const data = String(datetime || "").match(/^(\d{4}-\d{2}-\d{2})T/ )?.[1];
-  if (!data) return null;
-  const d = new Date(`${data}T12:00:00Z`);
-  d.setUTCDate(d.getUTCDate() - 1);
-  return dataLocalStr(d);
+function horarioVendasAberto(data) {
+  return !!data && data.getHours() >= 6 && data.getHours() < 10;
 }
 
 function VendasBloqueadas({ carregando = false }) {
@@ -1095,29 +1083,28 @@ function VendasBloqueadas({ carregando = false }) {
   );
 }
 
-function VendasProtegido({ admin = false }) {
-  const [status, setStatus] = useState("consultando");
-  const [dataVendas, setDataVendas] = useState(null);
+function VendasProtegido({ dataInicial, isAdmin = false }) {
+  const [status, setStatus] = useState(isAdmin ? "aberto" : "consultando");
 
   const verificarHorario = async () => {
+    if (isAdmin) {
+      setStatus("aberto");
+      return;
+    }
     setStatus("consultando");
     const agora = await obterHorarioInternetSaoPaulo();
-    const ontem = ontemDaDataInternet(agora);
-    if (ontem) setDataVendas(ontem);
-    // Admin pode acessar Vendas a qualquer hora; os demais perfis obedecem
-    // exclusivamente ao horário oficial obtido pela internet.
-    setStatus(admin || (agora && horarioVendasAberto(agora)) ? "aberto" : "fechado");
+    setStatus(agora && horarioVendasAberto(agora) ? "aberto" : "fechado");
   };
 
   useEffect(() => {
     verificarHorario();
+    if (isAdmin) return;
     const timer = setInterval(verificarHorario, 60000);
     return () => clearInterval(timer);
-  }, [admin]);
+  }, []);
 
   if (status !== "aberto") return <VendasBloqueadas carregando={status === "consultando"} />;
-  if (!dataVendas) return <VendasBloqueadas carregando={true} />;
-  return <Financeiro dataInicial={dataVendas} />;
+  return <Financeiro dataInicial={dataInicial} />;
 }
 
 function Financeiro({ dataInicial }) {
@@ -1247,13 +1234,7 @@ function Financeiro({ dataInicial }) {
 
   return (
     <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 10 }}>
-      <div style={{
-        background: accentSoft, border: `1px solid ${line}`, borderRadius: 10,
-        padding: "9px 12px", textAlign: "center", fontFamily: sans,
-        fontSize: 12, fontWeight: 800, color: accent
-      }}>
-        Vendas referentes ao dia {formatarDataCompleta(data)}
-      </div>
+      <DateBar data={data} setData={setData} />
 
       <input ref={fileInputRef} type="file" accept=".xlsx,.xls" onChange={importarArquivo} style={{ display: "none" }} />
       <div style={{ display: "flex", gap: 8 }}>
@@ -2148,6 +2129,7 @@ function App() {
             <div style={{width:96,flexShrink:0,background:accentSoft,padding:"14px 8px",display:"flex",flexDirection:"column",gap:10,overflowY:"auto"}}>
               {tabsPermitidas.map(t => <button key={t.id} onClick={async ()=>{
                 if (t.id === "financeiro") {
+                  const agora = await obterHorarioInternetSaoPaulo();
                   setTab("financeiro");
                   return;
                 }
@@ -2172,7 +2154,7 @@ function App() {
                 {tab==="estoque" && <Estoque dataInicial={hojeStr()} />}
                 {tab==="entradas" && <EntradasProtegido dataInicial={hojeStr()} />}
                 {tab==="perdas" && <PerdasProtegido dataInicial={hojeStr()} />}
-                {tab==="financeiro" && <VendasProtegido admin={usuario.usuario === "admin" || usuario.permissoes.includes("admin")} />}
+                {tab==="financeiro" && <VendasProtegido dataInicial={hojeStr()} isAdmin={usuario.permissoes.includes("admin")} />}
                 {tab==="confronto" && <Confronto />}
                 {tab==="historico" && <HistoricoAlteracoes />}
               </div>
