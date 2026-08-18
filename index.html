@@ -1455,13 +1455,7 @@ function EstoqueEsperadoDia() {
         setResultadoAtual(prev => mapasIguais(prev, novoResultado) ? prev : novoResultado);
       }
 
-      const dataHoje = hojeStr();
-      const { data: congelamentoHoje, error: erroCongelamentoHoje } = await sb.from("estoque_fechamentos")
-        .select("*").eq("data_referencia", dataHoje).maybeSingle();
-      if (erroCongelamentoHoje) throw erroCongelamentoHoje;
-      const novoCongelado = congelamentoHoje && congelamentoHoje.esperado_congelado_em
-        ? congelamentoHoje
-        : await buscarUltimoCongelado();
+      const novoCongelado = await buscarUltimoCongelado();
       setCongelado(prev => JSON.stringify(prev) === JSON.stringify(novoCongelado) ? prev : novoCongelado);
     } catch (e) {
       console.error(e);
@@ -1520,7 +1514,7 @@ function EstoqueEsperadoDia() {
             <div className="placeholder-congelando">
               <span className="placeholder-congelando-icone">❄️</span>
               <span style={{ fontFamily: sans, fontWeight: 800, fontSize: 13, position: "relative", zIndex: 1 }}>
-                Estoque de hoje será congelado às 23:30
+                Esperando fechamento de estoque para congelar
               </span>
             </div>
           </div>
@@ -1548,6 +1542,10 @@ function EstoqueEsperadoDia() {
               Congelado em {formatarDataHoraCompleta(congelado.esperado_congelado_em)}
             </span>
           </button>
+
+          <div style={{ fontFamily: sans, fontWeight: 800, fontSize: 12.5, color: inkSoft, textAlign: "center", padding: "2px 10px 0" }}>
+            Estoque congelado do dia {formatarData(congelado.data_referencia)}
+          </div>
 
           {mostrarCongelado && (
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
