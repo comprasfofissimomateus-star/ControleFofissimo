@@ -1557,10 +1557,7 @@ function EstoqueEsperadoDia() {
               marginTop: 0,
             }}
           >
-            <span>❄️ Estoque salvo de ontem</span>
-            <span style={{ fontWeight: 700, fontSize: 11, opacity: 0.92 }}>
-              Dia {ontemStr()}
-            </span>
+            <span>❄️ Estoque salvo de ontem — {formatarData(ontemStr())}</span>
           </button>
         )}
 
@@ -1637,7 +1634,6 @@ function Confronto() {
   return (
     <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 12 }}>
       <EstoqueEsperadoDia />
-      <EstoqueCongeladoConfronto />
 
       <div style={{ height: 1, background: line, margin: "2px 0" }} />
 
