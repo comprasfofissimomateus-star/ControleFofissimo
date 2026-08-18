@@ -935,9 +935,72 @@ function Contador({ tipo, dataInicial }) {
 }
 
 function Estoque({ dataInicial }) {
+  const [data, setData] = useState(dataInicial || hojeStr());
+  const [valores, setValores] = useState(null);
+  const [carregando, setCarregando] = useState(true);
+  const [erro, setErro] = useState(false);
+
+  const carregar = async () => {
+    setErro(false);
+    try {
+      const { data: fechamento, error } = await sb.from("estoque_fechamentos")
+        .select("data_referencia, estoque_inicial_10h, inicial_10h_congelado_em")
+        .eq("data_referencia", data)
+        .maybeSingle();
+      if (error) throw error;
+      setValores(fechamento?.estoque_inicial_10h || null);
+    } catch (e) {
+      console.error("Estoque inicial do dia:", e);
+      setErro(true);
+      setValores(null);
+    } finally {
+      setCarregando(false);
+    }
+  };
+
+  useEffect(() => {
+    setCarregando(true);
+    carregar();
+    const timer = setInterval(carregar, 10000);
+    return () => clearInterval(timer);
+  }, [data]);
+
+  const mapa = valores || Object.fromEntries(ITEMS.map((i) => [i.id, 0]));
+
   return (
-    <div style={{ display: "flex", flexDirection: "column" }}>
-      <Contador tipo="contagem" dataInicial={dataInicial} />
+    <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 10 }}>
+      <DateBar data={data} setData={setData} />
+
+      <div style={{
+        background: azulSoft, border: `1px solid ${azul}`, borderRadius: 10,
+        padding: "10px 14px", textAlign: "center", fontFamily: sans,
+        fontWeight: 800, fontSize: 12.5, color: azul
+      }}>
+        ❄️ Estoque inicial puxado automaticamente do congelamento anterior
+      </div>
+
+      {carregando && <div style={{ fontFamily: sans, fontSize: 12, color: inkSoft, textAlign: "center" }}>Carregando estoque inicial...</div>}
+      {erro && <div style={{ fontFamily: sans, fontSize: 11.5, color: danger, textAlign: "center" }}>Não foi possível carregar o estoque inicial do Supabase.</div>}
+
+      {!carregando && !erro && (
+        <ListaPorCategoria>
+          {(item) => {
+            const v = Number(mapa[item.id] || 0);
+            return (
+              <div key={item.id} style={{
+                background: card, border: `1px solid ${line}`, borderRadius: 10,
+                padding: "10px 14px", display: "flex", justifyContent: "space-between", alignItems: "center"
+              }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <ItemIcon id={item.id} />
+                  <span style={{ fontFamily: sans, fontWeight: 600, fontSize: 14, color: ink }}>{item.nome}</span>
+                </div>
+                <span style={{ fontFamily: sans, fontWeight: 800, fontSize: 16, color: v > 0 ? good : v === 0 ? amarelo : danger }}>{v}</span>
+              </div>
+            );
+          }}
+        </ListaPorCategoria>
+      )}
     </div>
   );
 }
@@ -1336,11 +1399,9 @@ async function executarFechamentoDas10h() {
   }
   if (ciclo.confronto_executado_em) return ciclo;
 
-  const { data: inicialRows, error: erroInicial } = await sb.from("registros")
-    .select("item_id, quantidade").eq("tipo", "contagem").eq("data", dataHoje);
-  if (erroInicial) throw erroInicial;
-
-  const contado = mapaPorItens(inicialRows);
+  // O estoque inicial do dia é SEMPRE o congelamento realizado às 23:30 do dia anterior.
+  // Não usa mais uma contagem manual como fonte do estoque inicial.
+  const contado = ciclo.esperado || {};
   const esperado = ciclo.esperado || {};
   const linhas = ITEMS.map(item => {
     const esperadoV = Number(esperado[item.id] || 0);
@@ -1430,12 +1491,8 @@ function EstoqueEsperadoDia() {
   const [erro, setErro] = useState(false);
 
   const buscarUltimoCongelado = async () => {
-    // O fechamento das 23:30 de ontem fica registrado como referência para HOJE.
-    // Buscamos diretamente a data de hoje para não depender do último registro geral.
-    const dataHoje = hojeStr();
     const { data, error } = await sb.from("estoque_fechamentos")
       .select("*")
-      .eq("data_referencia", dataHoje)
       .not("esperado_congelado_em", "is", null)
       .order("esperado_congelado_em", { ascending: false })
       .limit(1)
@@ -1459,30 +1516,14 @@ function EstoqueEsperadoDia() {
         setResultadoAtual(prev => mapasIguais(prev, novoResultado) ? prev : novoResultado);
       }
 
+      const novoCongelado = await buscarUltimoCongelado();
+      setCongelado(prev => JSON.stringify(prev) === JSON.stringify(novoCongelado) ? prev : novoCongelado);
     } catch (e) {
       console.error(e);
       setErro(true);
     }
     setCarregando(false);
   };
-
-  useEffect(() => {
-    let ativo = true;
-    const carregarCongelado = async () => {
-      try {
-        const registro = await buscarUltimoCongelado();
-        if (ativo) {
-          setCongelado(registro);
-          setErro(false);
-        }
-      } catch (e) {
-        console.error("Erro ao carregar estoque congelado:", e);
-      }
-    };
-    carregarCongelado();
-    const timerCongelado = setInterval(carregarCongelado, 10000);
-    return () => { ativo = false; clearInterval(timerCongelado); };
-  }, []);
 
   useEffect(() => {
     calcular();
@@ -1537,28 +1578,7 @@ function EstoqueEsperadoDia() {
                 Esperando fechamento de estoque para congelar
               </span>
             </div>
-
-
           </div>
-        )}
-
-        {congelado && (
-          <button
-            onClick={() => setMostrarCongelado((v) => !v)}
-            style={{
-              width: "100%",
-              display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 4,
-              background: "linear-gradient(180deg, #3B82F6 0%, #2563EB 100%)",
-              border: "1px solid #93C5FD",
-              boxShadow: "0 2px 8px rgba(37,99,235,0.22), inset 0 1px 0 rgba(255,255,255,0.35)",
-              color: "#fff", cursor: "pointer",
-              borderRadius: 10, padding: "11px 14px", fontFamily: sans,
-              fontWeight: 800, fontSize: 13.5, textAlign: "center",
-              marginTop: 0,
-            }}
-          >
-            <span>❄️ Estoque salvo de ontem — {formatarData(ontemStr())}</span>
-          </button>
         )}
 
         <div style={{ fontFamily: sans, fontSize: 10.5, color: inkSoft, textAlign: "center", background: "#F7F2EC", borderRadius: 8, padding: "7px 10px" }}>
@@ -1570,6 +1590,20 @@ function EstoqueEsperadoDia() {
 
       {congelado && (
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <button
+            onClick={() => setMostrarCongelado((v) => !v)}
+            style={{
+              display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 4,
+              background: azul, border: "none", color: "#fff", cursor: "pointer",
+              borderRadius: 10, padding: "11px 14px", fontFamily: sans, fontWeight: 800, fontSize: 13.5, textAlign: "center",
+            }}
+          >
+            <span>🔒 {mostrarCongelado ? "Ocultar" : "Ver"} congelamento de estoque</span>
+            <span style={{ fontWeight: 700, fontSize: 11, opacity: 0.9 }}>
+              Congelado em {formatarDataHoraCompleta(congelado.esperado_congelado_em)}
+            </span>
+          </button>
+
           {mostrarCongelado && (
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               <ListaPorCategoria>
@@ -1592,44 +1626,6 @@ function EstoqueEsperadoDia() {
     </div>
   );
 }
-function EstoqueCongeladoConfronto() {
-  const [congelado, setCongelado] = useState(null);
-  const [carregando, setCarregando] = useState(true);
-  const [erro, setErro] = useState(false);
-
-  useEffect(() => {
-    let ativo = true;
-    const buscar = async () => {
-      try {
-        const { data, error } = await sb.from("estoque_fechamentos")
-          .select("data_referencia, esperado_congelado_em, esperado")
-          .eq("data_referencia", hojeStr())
-          .not("esperado_congelado_em", "is", null)
-          .maybeSingle();
-        if (error) throw error;
-        if (ativo) { setCongelado(data || null); setErro(false); setCarregando(false); }
-      } catch (e) {
-        console.error(e);
-        if (ativo) { setErro(true); setCarregando(false); }
-      }
-    };
-    buscar();
-    const timer = setInterval(buscar, 10000);
-    return () => { ativo = false; clearInterval(timer); };
-  }, []);
-
-  if (carregando) return null;
-  if (erro) return <div style={{ fontFamily: sans, fontSize: 11.5, color: danger, textAlign: "center" }}>Não foi possível carregar o estoque congelado.</div>;
-  if (!congelado) return null;
-
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 6, background: azulSoft, border: `1px solid ${azul}`, borderRadius: 10, padding: "11px 14px", textAlign: "center" }}>
-      <div style={{ fontFamily: sans, fontWeight: 800, fontSize: 13.5, color: azul }}>🔒 Estoque congelado do dia {formatarData(congelado.data_referencia)}</div>
-      <div style={{ fontFamily: sans, fontSize: 11, color: inkSoft }}>Congelado às 23:30 de {formatarData(ontemStr())}</div>
-    </div>
-  );
-}
-
 function Confronto() {
   return (
     <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 12 }}>
@@ -1980,7 +1976,7 @@ function InstrucoesInicio({ permissoes }) {
   const instrucoes = {
     estoque: ["Estoque inicial do dia", <>Quantidade disponível de cada item no início da operação <b>(deve ser digitada manualmente todos os dias)</b>.</>],
     entradas: ["Entradas", <>Quantidade de cada item que chegou no estoque naquele dia <b>(deve ser digitada manualmente nos dias que chegarem itens no estoque)</b>.<div style={{marginTop:6,fontWeight:800,color:danger}}>É NECESSÁRIO ANEXO DE COMPROVANTE PARA CONFIRMAR ENTRADAS.</div></>],
-    perdas: ["Perdas", <>Todos os itens fora da condição de uso ou venda devem ser adicionados manualmente aqui</>],
+    perdas: ["Perdas", <>Todos os itens do estoque que estragarem, sumirem ou não estiverem em condições de uso e forem descartados devem ser adicionados manualmente aqui.</>],
     financeiro: ["Vendas", <>As vendas do dia só podem ser importadas diretamente do PDV, <b>não podendo ser digitadas manualmente</b>.</>],
     historico: ["Histórico", <>Consulte as alterações registradas no sistema para acompanhar os lançamentos realizados.</>]
   };
